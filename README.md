@@ -23,6 +23,10 @@
 python scripts/smoke_stft.py
 ```
 
+## Torch 离线最小版 GSENet
+
+该实现提供基于 torch 的离线 STFT/iSTFT 工具与测试，用于对齐后续的离线模型原型。需要注意的是，STFT 的窗函数会带来算法级延迟，因此严格的 sample-level 因果性比较必须考虑窗口长度（`win_length`）并避开重叠区间。
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
