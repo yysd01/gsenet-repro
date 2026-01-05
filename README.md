@@ -10,6 +10,22 @@
 
 当前 PR 仅完成复现骨架与自动化检查的搭建。
 
+## 安装依赖
+
+- 基础安装（不含 torch）：
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+- 可选 torch 支持（离线模型、torch STFT 与相关测试）：
+
+```bash
+python -m pip install -r requirements.txt -r requirements-torch.txt
+```
+
+未安装 torch 时，torch 相关功能与测试会自动跳过。
+
 ## STFT 参数约定
 
 论文中模型前端与训练损失使用不同的 STFT 参数：
