@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  test-base:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,3 +18,26 @@ jobs:
           pip install -r requirements.txt
       - name: Run tests
         run: python -m pytest -q
+  test-torch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies (torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-torch.txt
+      - name: Verify torch import
+        run: python -c "import torch; print(torch.__version__)"
+      - name: Run tests (torch)
+        run: |
+          set -euo pipefail
+          python -m pytest -q | tee pytest-output.txt
+          if grep -q "skipped because torch is unavailable" pytest-output.txt; then
+            echo "Torch tests were skipped because torch is unavailable."
+            exit 1
+          fi
+      - name: Run torch smoke training
+        run: python scripts/smoke_train_torch.py
