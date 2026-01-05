@@ -10,6 +10,19 @@
 
 当前 PR 仅完成复现骨架与自动化检查的搭建。
 
+## STFT 参数约定
+
+论文中模型前端与训练损失使用不同的 STFT 参数：
+
+- `MODEL_STFT`: `n_fft=320, win_length=320, hop_length=160`（16 kHz），用于模型前端特征。
+- `LOSS_STFT`: `n_fft=1024, win_length=1024, hop_length=256`（16 kHz），用于单尺度 STFT reconstruction loss。
+
+可通过脚本快速验证 STFT/iSTFT roundtrip：
+
+```bash
+python scripts/smoke_stft.py
+```
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
