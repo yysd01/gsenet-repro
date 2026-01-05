@@ -51,6 +51,8 @@ python scripts/smoke_stft.py
 python scripts/smoke_streaming.py
 ```
 
+该脚本需要安装 torch；若未安装则会自动跳过。
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
