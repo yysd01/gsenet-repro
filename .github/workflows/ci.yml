@@ -41,3 +41,5 @@ jobs:
           fi
       - name: Run torch smoke training
         run: python scripts/smoke_train_torch.py
+      - name: Run torch streaming smoke
+        run: python scripts/smoke_streaming.py
