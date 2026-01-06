@@ -53,6 +53,24 @@ python scripts/smoke_streaming.py
 
 该脚本需要安装 torch；若未安装则会自动跳过。
 
+## MCWF Implementation
+
+新增 STFT 域的简化多通道 Wiener 滤波器（MCWF）接口，面向论文中的三麦克风配置。该接口接收三通道复数 STFT 输入 `(B, F, T, 3)`，使用 4 帧因果滑窗统计每个频点的功率谱，并按信号/噪声功率比估计增益，输出与输入形状一致的频域强度谱：
+
+```python
+from gsenet_repro.dsp.mcwf import mcwf
+
+output = mcwf(
+    input_stft,
+    stft_win_length=320,
+    stft_hop_size=160,
+    noise_pow=0.1,
+    signal_pow=1.0,
+)
+```
+
+该接口作为后续深度网络集成的基础模块，方便在三麦克风 STFT 特征上进行滤波预处理与质量对比。
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
