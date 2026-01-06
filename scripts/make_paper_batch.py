@@ -10,9 +10,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
 from gsenet_repro.data.paper_synth import (
-    generate_rir_3src_2mic,
+    generate_rir_3src_3mic,
     sample_paper_params,
-    synthesize_y0_y1_yt,
+    synthesize_y0_y1_y2_yt,
 )
 
 
@@ -41,22 +41,28 @@ def main() -> None:
 
     y0_list = []
     y1_list = []
+    y2_list = []
     yt_list = []
     meta_list = []
+    noise_level_list = []
 
     for idx in range(batch):
         s = _synthetic_source(rng, length, fs)
         n = rng.normal(scale=0.3, size=length).astype(np.float32)
         i = _synthetic_source(rng, length, fs)
 
-        rir, rir_anechoic = generate_rir_3src_2mic(rng)
+        rir, rir_anechoic = generate_rir_3src_3mic(rng)
         params = sample_paper_params(rng, variant="gsenet")
-        y0, y1, yt = synthesize_y0_y1_yt(s, n, i, rir, rir_anechoic, params)
+        y0, y1, y2, yt = synthesize_y0_y1_y2_yt(s, n, i, rir, rir_anechoic, params)
 
         y0_list.append(y0)
         y1_list.append(y1)
+        y2_list.append(y2)
         yt_list.append(yt)
         meta_list.append(params.as_dict())
+        noise_pow = np.mean(n**2) + np.mean(i**2)
+        signal_pow = np.mean(s**2) + 1e-8
+        noise_level_list.append(float(noise_pow / signal_pow))
 
         print(
             "sample[{idx}] gn_db={gn_db:.2f} gi_db={gi_db:.2f} "
@@ -78,7 +84,9 @@ def main() -> None:
         out_path,
         y0=np.stack(y0_list),
         y1=np.stack(y1_list),
+        y2=np.stack(y2_list),
         yt=np.stack(yt_list),
+        noise_level=np.array(noise_level_list, dtype=np.float32),
         meta=json.dumps(meta_list),
     )
     print(f"saved: {out_path}")

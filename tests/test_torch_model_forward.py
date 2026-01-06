@@ -10,8 +10,9 @@ def test_torch_model_forward_backward() -> None:
     model = MinimalGSENet()
     y0 = torch.randn(2, 512)
     y1 = torch.randn(2, 512)
+    y2 = torch.randn(2, 512)
 
-    y_hat = model(y0, y1)
+    y_hat = model(y0, y1, y2)
     assert y_hat.shape == y0.shape
 
     loss = y_hat.mean()
@@ -24,6 +25,7 @@ def test_torch_model_shape_mismatch() -> None:
     model = MinimalGSENet()
     y0 = torch.randn(2, 512)
     y1 = torch.randn(2, 256)
+    y2 = torch.randn(2, 512)
 
     with pytest.raises(ValueError):
-        _ = model(y0, y1)
+        _ = model(y0, y1, y2)
