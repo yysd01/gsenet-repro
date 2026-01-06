@@ -174,6 +174,55 @@ def generate_rir_3src_2mic(
     return rir.astype(np.float32), rir_anechoic.astype(np.float32)
 
 
+def generate_rir_3src_3mic(
+    rng: np.random.Generator,
+    rir_length: int = 1024,
+    fs: int = 16000,
+    max_direct_delay_diff: int = 4,
+    early_reflections: int = 3,
+    max_early_delay: int = 80,
+    tail_decay: float = 0.02,
+    tail_level: float = 0.02,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate lightweight RIRs for 3 sources and 3 close microphones."""
+    _ = fs
+
+    rir = np.zeros((3, 3, rir_length), dtype=np.float32)
+    direct_delays = np.zeros((3, 3), dtype=np.int32)
+
+    for src_idx in range(3):
+        base_delay = int(rng.integers(20, 80))
+        for mic_idx in range(3):
+            offset = int(rng.integers(-max_direct_delay_diff, max_direct_delay_diff + 1))
+            delay = max(0, base_delay + offset)
+            direct_delays[src_idx, mic_idx] = delay
+            rir[src_idx, mic_idx] = _make_rir(
+                rng,
+                length=rir_length,
+                direct_delay=delay,
+                early_reflections=early_reflections,
+                max_early_delay=max_early_delay,
+                tail_decay=tail_decay,
+                tail_level=tail_level,
+            )
+
+    rir = np.stack(
+        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(3)],
+        axis=0,
+    ).reshape(3, 3, rir_length)
+
+    max_delay = int(np.max(direct_delays))
+    anechoic_length = max_delay + 1
+    rir_anechoic = np.zeros((3, 3, anechoic_length), dtype=np.float32)
+    for src_idx in range(3):
+        for mic_idx in range(3):
+            delay = direct_delays[src_idx, mic_idx]
+            rir_anechoic[src_idx, mic_idx, delay] = 1.0
+            rir_anechoic[src_idx, mic_idx] = normalize_rms(rir_anechoic[src_idx, mic_idx])
+
+    return rir.astype(np.float32), rir_anechoic.astype(np.float32)
+
+
 def _normalize_params(params: Optional[PaperParams | Dict[str, Any]]) -> PaperParams:
     if params is None:
         raise ValueError("params must be provided for synthesis.")
@@ -265,3 +314,68 @@ def synthesize_y0_y1_yt(
         yt *= params.global_gain
 
     return y0.astype(np.float32), y1.astype(np.float32), yt.astype(np.float32)
+
+
+def synthesize_y0_y1_y2_yt(
+    s: np.ndarray,
+    n: np.ndarray,
+    i: np.ndarray,
+    rir: np.ndarray,
+    rir_anechoic: np.ndarray,
+    params: PaperParams | Dict[str, Any],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Synthesize y0/y1/y2/yt for 3-microphone mixtures."""
+    params = _normalize_params(params)
+
+    s = normalize_rms(np.asarray(s, dtype=np.float32))
+    n = normalize_rms(np.asarray(n, dtype=np.float32))
+    i = normalize_rms(np.asarray(i, dtype=np.float32))
+
+    rir = np.asarray(rir, dtype=np.float32)
+    rir_anechoic = np.asarray(rir_anechoic, dtype=np.float32)
+    if rir.shape[:2] != (3, 3):
+        raise ValueError("rir must have shape (3, 3, L)")
+    if rir_anechoic.shape[:2] != (3, 3):
+        raise ValueError("rir_anechoic must have shape (3, 3, L_anechoic)")
+
+    length = s.shape[0]
+
+    rir_norm = np.stack(
+        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(3)],
+        axis=0,
+    ).reshape(3, 3, -1)
+    rir_anechoic_norm = np.stack(
+        [normalize_rms(rir_anechoic[src, mic]) for src in range(3) for mic in range(3)],
+        axis=0,
+    ).reshape(3, 3, -1)
+
+    y0 = _fftconvolve_truncate(s, rir_norm[0, 0], length)
+    y0 += params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 0], length)
+    y0 += params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 0], length)
+
+    y1 = _fftconvolve_truncate(s, rir_norm[0, 1], length)
+    y1 += params.alpha_lin * params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 1], length)
+    y1 += params.beta_lin * params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 1], length)
+
+    y2 = _fftconvolve_truncate(s, rir_norm[0, 2], length)
+    y2 += params.alpha_lin * params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 2], length)
+    y2 += params.beta_lin * params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 2], length)
+
+    anechoic = rir_anechoic_norm[0, 0]
+    k_star = int(np.argmax(np.abs(anechoic)))
+    h_main = np.zeros_like(anechoic)
+    h_main[k_star] = anechoic[k_star]
+    yt = _fftconvolve_truncate(s, h_main, length)
+
+    if params.global_gain != 1.0:
+        y0 *= params.global_gain
+        y1 *= params.global_gain
+        y2 *= params.global_gain
+        yt *= params.global_gain
+
+    return (
+        y0.astype(np.float32),
+        y1.astype(np.float32),
+        y2.astype(np.float32),
+        yt.astype(np.float32),
+    )

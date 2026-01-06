@@ -71,6 +71,22 @@ output = mcwf(
 
 该接口作为后续深度网络集成的基础模块，方便在三麦克风 STFT 特征上进行滤波预处理与质量对比。
 
+## MCWF + GSENet 模型集成
+
+在 `MinimalGSENet` 中加入 MCWF 预处理层，三麦克风输入会先在 STFT 域估计噪声功率并生成增益，再传入 GSENet 卷积层。示例训练/验证流程如下：
+
+```bash
+python scripts/make_paper_batch.py
+python scripts/smoke_train_paper_like.py
+```
+
+`smoke_train_paper_like.py` 会自动生成三麦克风合成数据（包含 RIR、噪声与干扰源），使用 `LOSS_STFT` 参数进行 STFT reconstruction loss，并在训练结束后输出：
+
+- `initial_loss` / `final_loss` 以确认 loss 持续下降
+- `snr_in` / `snr_out` / `snr_improve` 以确认 MCWF + GSENet 对噪声与干扰的抑制效果
+
+可通过 `noise_level` 参数控制 MCWF 的增益（噪声越大，增益越低），用于在训练中自适应噪声强度。
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
@@ -109,7 +125,7 @@ Table 1 分布（GSENet）：
 python scripts/make_paper_batch.py
 ```
 
-输出 `artifacts/paper_batch.npz`，其中的 `s/n/i` 当前为可复现的占位合成信号（正弦混合 + 包络），后续可替换为真实语料。模型前端 STFT 参数与训练 loss 参数继续沿用：
+输出 `artifacts/paper_batch.npz`，包含 `y0/y1/y2/yt` 与 `noise_level`，其中的 `s/n/i` 当前为可复现的占位合成信号（正弦混合 + 包络），后续可替换为真实语料。模型前端 STFT 参数与训练 loss 参数继续沿用：
 
 - `MODEL_STFT`: `n_fft=320, win_length=320, hop_length=160`（16 kHz）
 - `LOSS_STFT`: `n_fft=1024, win_length=1024, hop_length=256`（16 kHz）

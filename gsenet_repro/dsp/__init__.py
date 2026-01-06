@@ -7,9 +7,11 @@ from .stft import LOSS_STFT, MODEL_STFT, istft, stft
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     from .torch_stft import istft as torch_istft
     from .torch_stft import stft as torch_stft
+    from .mcwf_torch import windowed_power as mcwf_windowed_power
 else:  # pragma: no cover
     torch_stft = None
     torch_istft = None
+    mcwf_windowed_power = None
 
 __all__ = [
     "LOSS_STFT",
@@ -19,4 +21,5 @@ __all__ = [
     "istft",
     "torch_stft",
     "torch_istft",
+    "mcwf_windowed_power",
 ]

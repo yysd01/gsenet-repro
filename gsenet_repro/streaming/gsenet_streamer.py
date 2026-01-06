@@ -57,6 +57,7 @@ class GSENetStreamer:
         """Reset internal buffers."""
         self._buffer_y0: Optional[torch.Tensor] = None
         self._buffer_y1: Optional[torch.Tensor] = None
+        self._buffer_y2: Optional[torch.Tensor] = None
         self._output_fifo: Deque[torch.Tensor] = deque()
 
     def _ensure_batch(self, chunk: torch.Tensor) -> torch.Tensor:
@@ -88,7 +89,7 @@ class GSENetStreamer:
         self._output_fifo.append(zeros)
 
     def process(
-        self, y0_chunk: "torch.Tensor", y1_chunk: "torch.Tensor"
+        self, y0_chunk: "torch.Tensor", y1_chunk: "torch.Tensor", y2_chunk: "torch.Tensor"
     ) -> "torch.Tensor":
         """Process a chunk and return the aligned output chunk."""
         if torch is None:  # pragma: no cover - torch not installed
@@ -98,17 +99,19 @@ class GSENetStreamer:
 
         y0_chunk = self._ensure_batch(y0_chunk)
         y1_chunk = self._ensure_batch(y1_chunk)
-        if y0_chunk.shape != y1_chunk.shape:
-            raise ValueError("y0_chunk and y1_chunk must have the same shape")
+        y2_chunk = self._ensure_batch(y2_chunk)
+        if y0_chunk.shape != y1_chunk.shape or y0_chunk.shape != y2_chunk.shape:
+            raise ValueError("y0_chunk, y1_chunk, y2_chunk must have the same shape")
         if y0_chunk.shape[1] != self.chunk_size:
             raise ValueError("chunk length must match chunk_size")
 
         y0_full = self._prepare_buffer(self._buffer_y0, y0_chunk)
         y1_full = self._prepare_buffer(self._buffer_y1, y1_chunk)
+        y2_full = self._prepare_buffer(self._buffer_y2, y2_chunk)
 
         self.model.eval()
         with torch.no_grad():
-            y_hat = self.model(y0_full, y1_full)
+            y_hat = self.model(y0_full, y1_full, y2_full)
 
         y_hat_chunk = y_hat[:, -self.chunk_size :]
         self._init_output_fifo(
@@ -134,5 +137,6 @@ class GSENetStreamer:
 
         self._buffer_y0 = y0_full[:, -self.lookback :]
         self._buffer_y1 = y1_full[:, -self.lookback :]
+        self._buffer_y2 = y2_full[:, -self.lookback :]
 
         return out

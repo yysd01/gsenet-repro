@@ -1,4 +1,7 @@
+import importlib.util
+
 import numpy as np
+import pytest
 
 from gsenet_repro.dsp.mcwf import mcwf
 
@@ -62,3 +65,28 @@ def test_mcwf_output_tracks_input_power():
     gain = 1.5 / (1.5 + 0.2)
 
     assert np.allclose(output, expected_power * gain, atol=1e-6)
+
+
+def test_mcwf_gain_controls_gsenet_frontend():
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch not installed")
+
+    import torch
+
+    from gsenet_repro.models.gsenet_torch import MinimalGSENet
+    from gsenet_repro.dsp.torch_stft import torch_stft
+
+    torch.manual_seed(0)
+
+    model = MinimalGSENet(mcwf_gain_min=0.0, mcwf_gain_max=1.0, mcwf_noise_scale=1.0)
+
+    y = torch.randn(2, 512)
+    X0 = torch_stft(y, **model.stft_params, center=False)
+    X1 = torch_stft(y * 0.9, **model.stft_params, center=False)
+    X2 = torch_stft(y * 1.1, **model.stft_params, center=False)
+
+    X0_low, X1_low = model._apply_mcwf(X0, X1, X2, noise_level=torch.tensor([0.5, 0.5]))
+    X0_high, X1_high = model._apply_mcwf(X0, X1, X2, noise_level=torch.tensor([2.0, 2.0]))
+
+    assert torch.mean(torch.abs(X0_low)) > torch.mean(torch.abs(X0_high))
+    assert torch.mean(torch.abs(X1_low)) > torch.mean(torch.abs(X1_high))
