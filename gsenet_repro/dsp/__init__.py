@@ -1,6 +1,7 @@
 """DSP utilities."""
 import importlib.util
 
+from .mcwf import mcwf
 from .stft import LOSS_STFT, MODEL_STFT, istft, stft
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
@@ -13,6 +14,7 @@ else:  # pragma: no cover
 __all__ = [
     "LOSS_STFT",
     "MODEL_STFT",
+    "mcwf",
     "stft",
     "istft",
     "torch_stft",
