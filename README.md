@@ -129,3 +129,20 @@ python scripts/make_paper_batch.py
 
 - `MODEL_STFT`: `n_fft=320, win_length=320, hop_length=160`（16 kHz）
 - `LOSS_STFT`: `n_fft=1024, win_length=1024, hop_length=256`（16 kHz）
+
+## Data Augmentation
+
+合成数据在 `gsenet_repro/data/paper_synth.py` 中扩展了噪声与 RIR 的覆盖范围，确保更贴近真实场景：
+
+- **噪声类型**：白噪声、粉噪声（1/f）、speech-like 噪声以及 babble（多说话人叠加）通过 `generate_noise_mix` 生成，并可组合成背景噪声。
+- **背景噪声注入**：`synthesize_y0_y1_yt` / `synthesize_y0_y1_y2_yt` 支持 `background_config`，按随机 SNR 将背景噪声叠加到 `y0/y1(/y2)`，使噪声类型对混合公式产生显著影响。
+- **RIR 模拟**：`generate_rir_3src_2mic` / `generate_rir_3src_3mic` 会采样不同的 RT60 与早期反射数量，保证直达路径与多次早期反射，并让尾部衰减符合典型房间特性。
+
+复现扩展数据集流程：
+
+```bash
+python scripts/make_paper_batch.py
+python scripts/smoke_train_paper_like.py
+```
+
+`smoke_train_paper_like.py` 会使用扩展后的合成数据进行联合训练，训练过程中每 5 个 epoch 打印一次 SNR/训练损失/验证损失，并在测试集上输出每个样本的 SNR 提升与音质评分。由于项目保持纯 numpy/scipy 依赖，PESQ/STOI 使用 `gsenet_repro/eval/metrics.py` 中的 proxy 实现，用于回归测试和相对对比。

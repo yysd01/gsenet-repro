@@ -58,3 +58,26 @@ def mcwf(
 
     output = windowed_power * gain
     return np.asarray(output, dtype=np.float32)
+
+
+def mcwf_gain(
+    signal_pow: Union[float, np.ndarray],
+    noise_pow: Union[float, np.ndarray],
+    eps: float = 1e-8,
+) -> np.ndarray:
+    """Compute Wiener gain from signal and noise power estimates."""
+    signal_pow_arr = _as_float_array(signal_pow)
+    noise_pow_arr = _as_float_array(noise_pow)
+    return signal_pow_arr / (signal_pow_arr + noise_pow_arr + eps)
+
+
+def apply_mcwf_mask(
+    input_stft: np.ndarray,
+    noise_pow: Union[float, np.ndarray],
+    signal_pow: Union[float, np.ndarray],
+    gain_exponent: float = 1.0,
+) -> np.ndarray:
+    """Apply a Wiener-style gain mask directly to the complex STFT."""
+    _validate_input(input_stft, stft_win_length=1, stft_hop_size=1)
+    gain = mcwf_gain(signal_pow, noise_pow) ** float(gain_exponent)
+    return np.asarray(input_stft * gain, dtype=np.complex64)

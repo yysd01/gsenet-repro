@@ -3,7 +3,9 @@ import importlib.util
 import numpy as np
 import pytest
 
-from gsenet_repro.dsp.mcwf import mcwf
+from gsenet_repro.dsp.mcwf import apply_mcwf_mask, mcwf
+from gsenet_repro.dsp.stft import stft, istft, MODEL_STFT
+from gsenet_repro.eval.metrics import snr_db
 
 
 def _windowed_power(input_stft: np.ndarray, window_len: int = 4) -> np.ndarray:
@@ -90,3 +92,53 @@ def test_mcwf_gain_controls_gsenet_frontend():
 
     assert torch.mean(torch.abs(X0_low)) > torch.mean(torch.abs(X0_high))
     assert torch.mean(torch.abs(X1_low)) > torch.mean(torch.abs(X1_high))
+
+
+def test_mcwf_oracle_mask_improves_snr():
+    rng = np.random.default_rng(42)
+    fs = 16000
+    length = fs // 2
+    t = np.arange(length) / fs
+    s = (
+        0.6 * np.sin(2 * np.pi * 300.0 * t)
+        + 0.4 * np.sin(2 * np.pi * 600.0 * t)
+        + 0.3 * np.sin(2 * np.pi * 900.0 * t)
+    ).astype(np.float32)
+
+    for _ in range(3):
+        phase = rng.uniform(0.0, 2 * np.pi, size=3)
+        noise = (
+            0.8 * np.sin(2 * np.pi * 3000.0 * t + phase[0])
+            + 0.8 * np.sin(2 * np.pi * 3500.0 * t + phase[1])
+            + 0.6 * np.sin(2 * np.pi * 4000.0 * t + phase[2])
+        ).astype(np.float32)
+        y0 = s + noise
+        y1 = s + 0.9 * noise
+        y2 = s + 0.7 * noise
+
+        X0 = stft(y0, **MODEL_STFT, center=False)
+        X1 = stft(y1, **MODEL_STFT, center=False)
+        X2 = stft(y2, **MODEL_STFT, center=False)
+        input_stft = np.stack([X0, X1, X2], axis=-1)[None, ...]
+
+        S = stft(s, **MODEL_STFT, center=False)
+        N = stft(noise, **MODEL_STFT, center=False)
+        signal_pow = np.abs(S) ** 2
+        noise_pow = np.abs(N) ** 2
+
+        enhanced = apply_mcwf_mask(
+            input_stft,
+            noise_pow[None, ..., None],
+            signal_pow[None, ..., None],
+            gain_exponent=1.0,
+        )
+        enhanced_y0 = istft(
+            enhanced[0, ..., 0],
+            **MODEL_STFT,
+            length=length,
+            center=False,
+        )
+
+        snr_in = snr_db(s, y0)
+        snr_out = snr_db(s, enhanced_y0)
+        assert snr_out - snr_in > 5.0
