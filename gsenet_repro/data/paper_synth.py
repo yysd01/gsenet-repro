@@ -106,7 +106,9 @@ def _pink_noise(rng: np.random.Generator, length: int, fs: int) -> np.ndarray:
     white = rng.normal(size=length).astype(np.float32)
     spectrum = np.fft.rfft(white)
     freqs = np.fft.rfftfreq(length, d=1.0 / fs)
-    scale = np.where(freqs == 0, 0.0, 1.0 / np.sqrt(freqs))
+    scale = np.zeros_like(freqs, dtype=float)
+    mask = freqs > 0
+    scale[mask] = 1.0 / np.sqrt(freqs[mask])
     spectrum *= scale.astype(np.float32)
     pink = np.fft.irfft(spectrum, n=length)
     return normalize_rms(pink)
