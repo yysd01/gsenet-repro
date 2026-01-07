@@ -6,6 +6,20 @@ from typing import Optional
 import torch
 
 
+def _make_window(
+    win_length: int,
+    device: torch.device,
+    dtype: torch.dtype,
+    center: bool,
+    eps: float = 1e-4,
+) -> torch.Tensor:
+    window = torch.hann_window(win_length, periodic=True, device=device, dtype=dtype)
+    if not center and win_length > 0:
+        window[0] = window.new_tensor(eps)
+        window[-1] = torch.maximum(window[-1], window.new_tensor(eps))
+    return window
+
+
 def stft(
     x: torch.Tensor,
     n_fft: int,
@@ -40,7 +54,9 @@ def stft(
             (x.shape[0], n_fft // 2 + 1, 0), dtype=complex_dtype, device=x.device
         )
 
-    window_tensor = torch.hann_window(win_length, device=x.device, dtype=x.dtype)
+    window_tensor = _make_window(
+        win_length, device=x.device, dtype=x.dtype, center=center
+    )
     return torch.stft(
         x,
         n_fft=n_fft,
@@ -89,7 +105,9 @@ def istft(
             return torch.zeros((batch, 0), dtype=X.real.dtype, device=X.device)
         return torch.zeros((batch, length), dtype=X.real.dtype, device=X.device)
 
-    window_tensor = torch.hann_window(win_length, device=X.device, dtype=X.real.dtype)
+    window_tensor = _make_window(
+        win_length, device=X.device, dtype=X.real.dtype, center=center
+    )
     return torch.istft(
         X,
         n_fft=n_fft,
