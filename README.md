@@ -87,6 +87,25 @@ python scripts/smoke_train_paper_like.py
 
 可通过 `noise_level` 参数控制 MCWF 的增益（噪声越大，增益越低），用于在训练中自适应噪声强度。
 
+## Full training (paper-like)
+
+完整训练/评测/报告入口如下（默认输出在 `artifacts/`）：
+
+```bash
+python -m pip install -r requirements.txt -r requirements-torch.txt
+python scripts/train_paper_like_full.py --num_steps 2000
+python scripts/eval_paper_like_full.py --ckpt_path <.../best.pt>
+python scripts/report_paper_like_full.py --run_dir <...>
+```
+
+`mcwf_frontend` 使用噪声功率加权平均的简化 MCWF 单通道输出作为训练前端（用于复现训练接口，后续可替换为更真实的 beamformer 实现）。
+
+可选绘图依赖：
+
+```bash
+python -m pip install -r requirements-viz.txt
+```
+
 ## 合成数据管线（dummy batch）
 
 运行脚本生成样例数据：
