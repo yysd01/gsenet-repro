@@ -45,6 +45,53 @@ def _ensure_length_2d(signal: np.ndarray, target_length: int) -> np.ndarray:
     return signal[:target_length]
 
 
+DEFAULT_PAIRING_CONFIG: Dict[str, object] = {
+    "clean_prefix": "clean_",
+    "mic_prefix": "mic_",
+    "drop_last_underscore_segment": True,
+    "strict_pairing": False,
+}
+
+
+def canonical_pair_key(filename: str, kind: str, cfg: Dict[str, object]) -> str:
+    stem = Path(filename).stem
+    clean_prefix = str(cfg.get("clean_prefix", DEFAULT_PAIRING_CONFIG["clean_prefix"]))
+    mic_prefix = str(cfg.get("mic_prefix", DEFAULT_PAIRING_CONFIG["mic_prefix"]))
+    prefix = ""
+    if kind == "clean":
+        prefix = clean_prefix
+    elif kind == "mic":
+        prefix = mic_prefix
+    if prefix and stem.startswith(prefix):
+        stem = stem[len(prefix) :]
+    if bool(cfg.get("drop_last_underscore_segment", True)) and "_" in stem:
+        stem = stem.rsplit("_", 1)[0]
+    return stem
+
+
+def _normalize_pairing_config(pairing_config: Dict[str, object] | None) -> Dict[str, object]:
+    normalized = dict(DEFAULT_PAIRING_CONFIG)
+    if pairing_config:
+        for key in DEFAULT_PAIRING_CONFIG:
+            if key in pairing_config:
+                normalized[key] = pairing_config[key]
+    return normalized
+
+
+def _build_key_map(
+    paths: List[Path],
+    kind: str,
+    cfg: Dict[str, object],
+) -> Dict[str, List[Path]]:
+    key_map: Dict[str, List[Path]] = {}
+    for path in paths:
+        key = canonical_pair_key(path.name, kind, cfg)
+        key_map.setdefault(key, []).append(path)
+    for key in key_map:
+        key_map[key] = sorted(key_map[key])
+    return key_map
+
+
 class RealFourMicDirDataset:
     """Dataset for real 4-mic recordings stored as clean/mic directory pairs."""
 
@@ -61,6 +108,7 @@ class RealFourMicDirDataset:
         fixed_crop: str = "center",
         resample: bool = True,
         cache_metadata: bool = True,
+        pairing_config: Dict[str, object] | None = None,
     ) -> None:
         self.root = Path(root)
         self.split = split
@@ -82,6 +130,7 @@ class RealFourMicDirDataset:
             raise ValueError("fixed_crop must be 'center' or 'start'")
         self.resample = bool(resample)
         self.cache_metadata = bool(cache_metadata)
+        self.pairing_config = _normalize_pairing_config(pairing_config)
         self._rng = np.random.default_rng()
 
         clean_dir = self.root / self.split / "clean"
@@ -91,19 +140,49 @@ class RealFourMicDirDataset:
         if not mic_dir.exists():
             raise FileNotFoundError(f"Mic directory not found: {mic_dir}")
 
+        clean_paths = sorted(clean_dir.glob("*.wav"))
         mic_paths = sorted(mic_dir.glob("*.wav"))
+        clean_map = _build_key_map(clean_paths, "clean", self.pairing_config)
+        mic_map = _build_key_map(mic_paths, "mic", self.pairing_config)
+        clean_total = len(clean_paths)
+        mic_total = len(mic_paths)
+        clean_keys = set(clean_map.keys())
+        mic_keys = set(mic_map.keys())
+        paired_keys = sorted(clean_keys & mic_keys)
+        missing_clean = sum(len(mic_map[key]) for key in mic_keys - clean_keys)
+        missing_mic = sum(len(clean_map[key]) for key in clean_keys - mic_keys)
+        duplicate_key_clean = sum(1 for paths in clean_map.values() if len(paths) > 1)
+        duplicate_key_mic = sum(1 for paths in mic_map.values() if len(paths) > 1)
+        strict_pairing = bool(self.pairing_config.get("strict_pairing", False))
+
         entries: List[Dict[str, object]] = []
-        missing_clean = 0
-        for mic_path in mic_paths:
-            clean_path = clean_dir / mic_path.name
-            if not clean_path.exists():
-                missing_clean += 1
-                continue
+        for key in paired_keys:
+            clean_candidates = clean_map[key]
+            mic_candidates = mic_map[key]
+            if len(clean_candidates) > 1:
+                message = (
+                    f"Pairing key '{key}' has {len(clean_candidates)} clean files; "
+                    f"using {clean_candidates[0].name} and ignoring {len(clean_candidates) - 1}."
+                )
+                if strict_pairing:
+                    raise ValueError(message)
+                warnings.warn(message, RuntimeWarning)
+            if len(mic_candidates) > 1:
+                message = (
+                    f"Pairing key '{key}' has {len(mic_candidates)} mic files; "
+                    f"using {mic_candidates[0].name} and ignoring {len(mic_candidates) - 1}."
+                )
+                if strict_pairing:
+                    raise ValueError(message)
+                warnings.warn(message, RuntimeWarning)
+            clean_path = clean_candidates[0]
+            mic_path = mic_candidates[0]
             entry: Dict[str, object] = {
                 "mic_path": mic_path,
                 "clean_path": clean_path,
                 "mic_info": None,
                 "clean_info": None,
+                "pair_key": key,
             }
             if self.cache_metadata:
                 mic_info = _load_audio_info(mic_path)
@@ -121,15 +200,31 @@ class RealFourMicDirDataset:
                 entry["clean_info"] = clean_info
             entries.append(entry)
 
-        if missing_clean > 0:
-            print(
-                f"RealFourMicDirDataset[{self.split}]: skipped {missing_clean} mic files without clean pairs."
+        if missing_clean > 0 or missing_mic > 0:
+            warnings.warn(
+                "RealFourMicDirDataset[{split}]: missing pairs "
+                "(missing_clean={missing_clean}, missing_mic={missing_mic}).".format(
+                    split=self.split,
+                    missing_clean=missing_clean,
+                    missing_mic=missing_mic,
+                ),
+                RuntimeWarning,
             )
         if not entries:
             raise ValueError(f"No paired samples found under {self.root / self.split}")
         print(
-            f"RealFourMicDirDataset[{self.split}]: paired {len(entries)} samples "
-            f"(missing clean: {missing_clean})."
+            "RealFourMicDirDataset[{split}]: clean_total={clean_total} mic_total={mic_total} "
+            "paired={paired} missing_clean={missing_clean} missing_mic={missing_mic} "
+            "duplicate_key_clean={duplicate_key_clean} duplicate_key_mic={duplicate_key_mic}.".format(
+                split=self.split,
+                clean_total=clean_total,
+                mic_total=mic_total,
+                paired=len(entries),
+                missing_clean=missing_clean,
+                missing_mic=missing_mic,
+                duplicate_key_clean=duplicate_key_clean,
+                duplicate_key_mic=duplicate_key_mic,
+            )
         )
         self.entries = entries
 
@@ -238,6 +333,7 @@ class RealFourMicDirDataset:
             "basename": mic_path.name,
             "mic_path": str(mic_path),
             "clean_path": str(clean_path),
+            "pair_key": entry.get("pair_key"),
             "orig_sr": mic_info.sample_rate,
             "orig_frames": total_frames,
             "start_frame": int(start_frame),

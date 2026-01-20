@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
-from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
+from gsenet_repro.data.real_fourmic_dir_dataset import (
+    RealFourMicDirDataset,
+    canonical_pair_key,
+)
 from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
@@ -34,6 +39,13 @@ def test_real_fourmic_dir_dataset_shapes(tmp_path) -> None:
     assert yt.dtype == np.float32
     assert np.isfinite(x_mics).all()
     assert np.isfinite(yt).all()
+    pair_key = sample["meta"]["pair_key"]
+    assert pair_key == canonical_pair_key(
+        Path(sample["meta"]["clean_path"]).name, "clean", dataset.pairing_config
+    )
+    assert pair_key == canonical_pair_key(
+        Path(sample["meta"]["mic_path"]).name, "mic", dataset.pairing_config
+    )
 
     padded = None
     for idx in range(len(dataset)):

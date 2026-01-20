@@ -123,3 +123,9 @@ enable_pesq = true
 enable_sisdr = true
 enable_sisnr = true
 enable_snr = true
+
+[pairing]
+clean_prefix = "clean_"
+mic_prefix = "mic_"
+drop_last_underscore_segment = true
+strict_pairing = false

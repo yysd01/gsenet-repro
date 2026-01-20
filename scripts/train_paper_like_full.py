@@ -142,6 +142,7 @@ def _make_eval_batch(
     batch_size: int,
     stft_params: Dict[str, int],
     seed: int,
+    pairing_config: Dict[str, object] | None = None,
 ) -> tuple[Dict[str, torch.Tensor], torch.utils.data.Dataset]:
     if data_config["mode"] == "real":
         dataset = RealMultichannelDataset(
@@ -169,6 +170,7 @@ def _make_eval_batch(
             fixed_crop=data_config.get("fixed_crop", "center"),
             resample=bool(data_config.get("resample", True)),
             cache_metadata=bool(data_config.get("cache_metadata", True)),
+            pairing_config=pairing_config,
         )
         _log_real_dir_dataset(dataset, "valid", data_config)
     else:
@@ -313,6 +315,7 @@ def _log_eval_metrics(
 def train_with_config(config: Dict[str, object], config_path: str | None = None) -> None:
     run_config = config["run"]
     data_config = config["data"]
+    pairing_config = config.get("pairing")
     train_config = config["train"]
     loss_stft = config["stft_loss"]
     model_stft = config["stft_model"]
@@ -355,6 +358,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             fixed_crop=data_config.get("fixed_crop", "center"),
             resample=bool(data_config.get("resample", True)),
             cache_metadata=bool(data_config.get("cache_metadata", True)),
+            pairing_config=pairing_config,
         )
         _log_real_dir_dataset(dataset, "train", data_config)
     else:
@@ -384,6 +388,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         batch_size=train_config["batch_size"],
         stft_params=model_stft,
         seed=eval_seed,
+        pairing_config=pairing_config,
     )
 
     model, model_name = _build_model(config)

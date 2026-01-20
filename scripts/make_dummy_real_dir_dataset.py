@@ -3,9 +3,15 @@ from __future__ import annotations
 import argparse
 import shutil
 from pathlib import Path
+import sys
 
 import numpy as np
 import soundfile as sf
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(REPO_ROOT))
+
+from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 
 
 def _make_signal(duration_s: float, sample_rate: int, freq: float) -> np.ndarray:
@@ -18,6 +24,7 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
         shutil.rmtree(root)
     splits = ["train", "valid", "test"]
     durations = [0.6, 1.2, 2.5]
+    date_tag = "20251112"
     root.mkdir(parents=True, exist_ok=True)
 
     for split in splits:
@@ -39,9 +46,11 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
                 axis=1,
             )
             mic = mic_stack + noise
-            name = f"{idx:04d}.wav"
-            sf.write(str(clean_dir / name), clean, samplerate=sample_rate)
-            sf.write(str(mic_dir / name), mic, samplerate=sample_rate)
+            core = f"{idx}-1_src30-int90-p257-367_doa0"
+            clean_name = f"clean_{core}_data.wav"
+            mic_name = f"mic_{core}_{date_tag}.wav"
+            sf.write(str(clean_dir / clean_name), clean, samplerate=sample_rate)
+            sf.write(str(mic_dir / mic_name), mic, samplerate=sample_rate)
 
     print(f"Dummy dataset created at: {root}")
     for split in splits:
@@ -53,6 +62,17 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
         if path.is_file():
             rel = path.relative_to(root)
             print(rel)
+
+    for split in splits:
+        RealFourMicDirDataset(
+            root=root,
+            split=split,
+            sample_rate=sample_rate,
+            segment_seconds=1.0,
+            num_mics=4,
+            random_crop=False,
+            cache_metadata=False,
+        )
 
 
 def _parse_args() -> argparse.Namespace:

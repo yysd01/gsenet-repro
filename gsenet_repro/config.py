@@ -82,6 +82,12 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "enable_sisnr": True,
         "enable_snr": True,
     },
+    "pairing": {
+        "clean_prefix": "clean_",
+        "mic_prefix": "mic_",
+        "drop_last_underscore_segment": True,
+        "strict_pairing": False,
+    },
 }
 
 
