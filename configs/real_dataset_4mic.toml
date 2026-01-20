@@ -4,13 +4,18 @@ device = "auto"
 run_dir = ""
 
 [data]
-mode = "real"
+mode = "real_dir"
 sample_rate = 16000
 segment_seconds = 1.0
 num_mics = 4
 ref_mic_index = 0
-manifest_path = "artifacts/dummy_real_dataset/manifest.csv"
-root_dir = ""
+root = "artifacts/dummy_real_dir_dataset"
+split = "train"
+random_crop = true
+eval_full_length = false
+fixed_crop = "center"
+resample = true
+cache_metadata = true
 use_mcwf = 1
 mcwf_causal_frames = 4
 

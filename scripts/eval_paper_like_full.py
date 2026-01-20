@@ -24,11 +24,13 @@ from torch.utils.data import DataLoader
 
 from gsenet_repro.config import resolve_config
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
+from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from gsenet_repro.data.real_dataset import RealMultichannelDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
+from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
 
 def _normalize_audio(x: np.ndarray, peak: float = 0.99) -> np.ndarray:
@@ -57,6 +59,20 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
             stft_params=config["stft_model"],
             causal_frames=data_config["mcwf_causal_frames"],
             seed=seed,
+        )
+    if data_config["mode"] == "real_dir":
+        return RealFourMicDirDataset(
+            root=data_config["root"],
+            split="test",
+            sample_rate=data_config["sample_rate"],
+            segment_seconds=data_config["segment_seconds"],
+            num_mics=data_config["num_mics"],
+            ref_mic_index=data_config["ref_mic_index"],
+            random_crop=False,
+            eval_full_length=bool(data_config.get("eval_full_length", False)),
+            fixed_crop=data_config.get("fixed_crop", "center"),
+            resample=bool(data_config.get("resample", True)),
+            cache_metadata=bool(data_config.get("cache_metadata", True)),
         )
     return PaperLikeDataset(
         sample_rate=data_config["sample_rate"],
@@ -129,10 +145,24 @@ def main() -> None:
         for batch_idx, batch in enumerate(loader):
             if batch_idx >= args.num_batches:
                 break
-            y0 = batch["y0"].to(device)
-            y1 = batch["y1"].to(device)
-            y2 = batch["y2"].to(device)
-            yt = batch["yt"].to(device)
+            if "x_mics" in batch:
+                x_mics = batch["x_mics"].to(device)
+                y1 = batch["y1"].to(device)
+                yt = batch["yt"].to(device)
+                if bool(config["data"]["use_mcwf"]):
+                    y0 = mcwf_make_y0(
+                        x_mics,
+                        stft_params=config["stft_model"],
+                        causal_frames=config["data"]["mcwf_causal_frames"],
+                    )
+                else:
+                    y0 = y1
+                y2 = x_mics[:, min(2, x_mics.shape[1] - 1)]
+            else:
+                y0 = batch["y0"].to(device)
+                y1 = batch["y1"].to(device)
+                y2 = batch["y2"].to(device)
+                yt = batch["yt"].to(device)
             y_hat = model(y0, y1, y2)
 
             loss_y1 = stft_magnitude_loss(y1, yt, stft_params=loss_stft)

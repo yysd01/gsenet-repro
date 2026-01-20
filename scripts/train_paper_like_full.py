@@ -27,7 +27,9 @@ from torch.utils.data import DataLoader
 
 from gsenet_repro.config import resolve_config, resolve_run_dir, save_resolved_config
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
+from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from gsenet_repro.data.real_dataset import RealMultichannelDataset
+from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
@@ -64,7 +66,13 @@ def _seed_everything(seed: int) -> None:
 
 
 def _to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
-    return {key: value.to(device) for key, value in batch.items()}
+    moved: Dict[str, torch.Tensor] = {}
+    for key, value in batch.items():
+        if torch.is_tensor(value):
+            moved[key] = value.to(device)
+        else:
+            moved[key] = value
+    return moved
 
 
 def _make_eval_batch(
@@ -86,6 +94,21 @@ def _make_eval_batch(
             causal_frames=data_config["mcwf_causal_frames"],
             seed=seed,
         )
+    elif data_config["mode"] == "real_dir":
+        dataset = RealFourMicDirDataset(
+            root=data_config["root"],
+            split="valid",
+            sample_rate=data_config["sample_rate"],
+            segment_seconds=data_config["segment_seconds"],
+            num_mics=data_config["num_mics"],
+            ref_mic_index=data_config["ref_mic_index"],
+            random_crop=False,
+            eval_full_length=bool(data_config.get("eval_full_length", False)),
+            fixed_crop=data_config.get("fixed_crop", "center"),
+            resample=bool(data_config.get("resample", True)),
+            cache_metadata=bool(data_config.get("cache_metadata", True)),
+        )
+        _log_real_dir_dataset(dataset, "valid", data_config)
     else:
         dataset = PaperLikeDataset(
             sample_rate=data_config["sample_rate"],
@@ -100,6 +123,45 @@ def _make_eval_batch(
         )
     loader = DataLoader(dataset, batch_size=batch_size)
     return next(iter(loader))
+
+
+def _log_real_dir_dataset(dataset: RealFourMicDirDataset, split: str, data_config: Dict[str, object]) -> None:
+    resample = bool(data_config.get("resample", True))
+    print(
+        "RealFourMicDirDataset split={split} root={root} samples={samples} "
+        "segment_seconds={segment_seconds} sample_rate={sample_rate} num_mics={num_mics} "
+        "resample={resample} use_mcwf={use_mcwf}".format(
+            split=split,
+            root=data_config.get("root"),
+            samples=len(dataset),
+            segment_seconds=data_config["segment_seconds"],
+            sample_rate=data_config["sample_rate"],
+            num_mics=data_config["num_mics"],
+            resample=resample,
+            use_mcwf=bool(data_config["use_mcwf"]),
+        )
+    )
+
+
+def _prepare_batch_for_model(
+    batch: Dict[str, torch.Tensor],
+    data_config: Dict[str, object],
+    stft_params: Dict[str, int],
+) -> Dict[str, torch.Tensor]:
+    if "x_mics" not in batch:
+        return batch
+    x_mics = batch["x_mics"]
+    y1 = batch["y1"]
+    yt = batch["yt"]
+    if bool(data_config["use_mcwf"]):
+        y0 = mcwf_make_y0(x_mics, stft_params=stft_params, causal_frames=data_config["mcwf_causal_frames"])
+    else:
+        y0 = y1
+    mic_index = min(2, x_mics.shape[1] - 1)
+    y2 = x_mics[:, mic_index]
+    prepared = dict(batch)
+    prepared.update({"y0": y0, "y1": y1, "y2": y2, "yt": yt})
+    return prepared
 
 
 def _save_checkpoint(
@@ -218,6 +280,21 @@ def train_with_config(config: Dict[str, object]) -> None:
             causal_frames=data_config["mcwf_causal_frames"],
             seed=run_config["seed"],
         )
+    elif data_config["mode"] == "real_dir":
+        dataset = RealFourMicDirDataset(
+            root=data_config["root"],
+            split="train",
+            sample_rate=data_config["sample_rate"],
+            segment_seconds=data_config["segment_seconds"],
+            num_mics=data_config["num_mics"],
+            ref_mic_index=data_config["ref_mic_index"],
+            random_crop=True,
+            eval_full_length=False,
+            fixed_crop=data_config.get("fixed_crop", "center"),
+            resample=bool(data_config.get("resample", True)),
+            cache_metadata=bool(data_config.get("cache_metadata", True)),
+        )
+        _log_real_dir_dataset(dataset, "train", data_config)
     else:
         dataset = PaperLikeDataset(
             sample_rate=data_config["sample_rate"],
@@ -280,7 +357,7 @@ def train_with_config(config: Dict[str, object]) -> None:
 
     for step in progress:
         batch = next(train_iter)
-        batch = _to_device(batch, device)
+        batch = _prepare_batch_for_model(_to_device(batch, device), data_config, model_stft)
         y0 = batch["y0"]
         y1 = batch["y1"]
         y2 = batch["y2"]
@@ -346,7 +423,9 @@ def train_with_config(config: Dict[str, object]) -> None:
         if step % train_config["eval_every"] == 0:
             model.eval()
             with torch.no_grad():
-                eval_batch_device = _to_device(eval_batch, device)
+                eval_batch_device = _prepare_batch_for_model(
+                    _to_device(eval_batch, device), data_config, model_stft
+                )
                 y_hat_eval = model(
                     eval_batch_device["y0"],
                     eval_batch_device["y1"],
@@ -418,6 +497,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--ref_mic_index", type=int, default=None)
     parser.add_argument("--manifest_path", type=str, default=None)
     parser.add_argument("--root_dir", type=str, default=None)
+    parser.add_argument("--root", type=str, default=None)
     parser.add_argument("--use_mcwf", type=int, default=None)
     parser.add_argument("--mcwf_causal_frames", type=int, default=None)
     parser.add_argument("--batch_size", type=int, default=None)
@@ -429,6 +509,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--num_workers", type=int, default=None)
     parser.add_argument("--prefetch_factor", type=int, default=None)
     parser.add_argument("--data_mode", type=str, default=None)
+    parser.add_argument("--eval_full_length", type=int, default=None)
+    parser.add_argument("--fixed_crop", type=str, default=None)
+    parser.add_argument("--resample", type=int, default=None)
+    parser.add_argument("--cache_metadata", type=int, default=None)
     return parser.parse_args()
 
 
@@ -459,12 +543,22 @@ def main() -> None:
         data_overrides["manifest_path"] = args.manifest_path
     if args.root_dir is not None:
         data_overrides["root_dir"] = args.root_dir
+    if args.root is not None:
+        data_overrides["root"] = args.root
     if args.use_mcwf is not None:
         data_overrides["use_mcwf"] = args.use_mcwf
     if args.mcwf_causal_frames is not None:
         data_overrides["mcwf_causal_frames"] = args.mcwf_causal_frames
     if args.data_mode is not None:
         data_overrides["mode"] = args.data_mode
+    if args.eval_full_length is not None:
+        data_overrides["eval_full_length"] = bool(args.eval_full_length)
+    if args.fixed_crop is not None:
+        data_overrides["fixed_crop"] = args.fixed_crop
+    if args.resample is not None:
+        data_overrides["resample"] = bool(args.resample)
+    if args.cache_metadata is not None:
+        data_overrides["cache_metadata"] = bool(args.cache_metadata)
     if data_overrides:
         overrides["data"] = data_overrides
 

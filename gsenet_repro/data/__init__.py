@@ -16,6 +16,7 @@ from .paper_synth import (
     synthesize_y_mics_yt,
 )
 from .paper_dataset import PaperLikeDataset
+from .real_fourmic_dir_dataset import RealFourMicDirDataset
 from .real_dataset import RealMultichannelDataset
 from .synthesis import Gains, amp_to_db, db_to_amp, sample_gains, synthesize_pair
 
@@ -34,6 +35,7 @@ __all__ = [
     "generate_dummy_rir",
     "sample_paper_params",
     "PaperLikeDataset",
+    "RealFourMicDirDataset",
     "RealMultichannelDataset",
     "sample_gains",
     "synthesize_y0_y1_yt",
