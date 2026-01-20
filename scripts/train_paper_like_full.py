@@ -165,6 +165,8 @@ def _make_eval_batch(
             segment_seconds=data_config["segment_seconds"],
             num_mics=data_config["num_mics"],
             ref_mic_index=data_config["ref_mic_index"],
+            clean_ref_mic_index=data_config.get("clean_ref_mic_index", 0),
+            clean_is_multichannel=bool(data_config.get("clean_is_multichannel", True)),
             random_crop=False,
             eval_full_length=bool(data_config.get("eval_full_length", False)),
             fixed_crop=data_config.get("fixed_crop", "center"),
@@ -194,7 +196,8 @@ def _log_real_dir_dataset(dataset: RealFourMicDirDataset, split: str, data_confi
     print(
         "RealFourMicDirDataset split={split} root={root} samples={samples} "
         "segment_seconds={segment_seconds} sample_rate={sample_rate} num_mics={num_mics} "
-        "resample={resample} use_mcwf={use_mcwf}".format(
+        "resample={resample} use_mcwf={use_mcwf} ref_mic_index={ref_mic_index} "
+        "clean_ref_mic_index={clean_ref_mic_index}".format(
             split=split,
             root=data_config.get("root"),
             samples=len(dataset),
@@ -203,6 +206,8 @@ def _log_real_dir_dataset(dataset: RealFourMicDirDataset, split: str, data_confi
             num_mics=data_config["num_mics"],
             resample=resample,
             use_mcwf=bool(data_config["use_mcwf"]),
+            ref_mic_index=data_config.get("ref_mic_index", 0),
+            clean_ref_mic_index=data_config.get("clean_ref_mic_index", 0),
         )
     )
 
@@ -331,6 +336,12 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
     )
 
     _seed_everything(run_config["seed"])
+    print(
+        "data_ref_mic_index={ref_mic_index} data_clean_ref_mic_index={clean_ref_mic_index}".format(
+            ref_mic_index=data_config.get("ref_mic_index", 0),
+            clean_ref_mic_index=data_config.get("clean_ref_mic_index", 0),
+        )
+    )
 
     if data_config["mode"] == "real":
         dataset = RealMultichannelDataset(
@@ -353,6 +364,8 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             segment_seconds=data_config["segment_seconds"],
             num_mics=data_config["num_mics"],
             ref_mic_index=data_config["ref_mic_index"],
+            clean_ref_mic_index=data_config.get("clean_ref_mic_index", 0),
+            clean_is_multichannel=bool(data_config.get("clean_is_multichannel", True)),
             random_crop=True,
             eval_full_length=False,
             fixed_crop=data_config.get("fixed_crop", "center"),

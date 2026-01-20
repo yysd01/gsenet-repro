@@ -21,6 +21,8 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "segment_seconds": 1.0,
         "num_mics": 4,
         "ref_mic_index": 0,
+        "clean_ref_mic_index": 0,
+        "clean_is_multichannel": True,
         "manifest_path": None,
         "root_dir": None,
         "root": None,

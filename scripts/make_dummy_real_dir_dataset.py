@@ -26,6 +26,7 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
     durations = [0.6, 1.2, 2.5]
     date_tag = "20251112"
     root.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(1234)
 
     for split in splits:
         clean_dir = root / split / "clean"
@@ -35,7 +36,7 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
 
         for idx, duration in enumerate(durations, start=1):
             clean = _make_signal(duration, sample_rate, freq=220.0 + idx * 30.0)
-            noise = np.random.normal(scale=0.02, size=(clean.shape[0], 4)).astype(np.float32)
+            noise = rng.normal(scale=0.02, size=(clean.shape[0], 4)).astype(np.float32)
             mic_stack = np.stack(
                 [
                     clean * 1.0,
@@ -46,10 +47,19 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
                 axis=1,
             )
             mic = mic_stack + noise
+            clean_stack = np.stack(
+                [
+                    clean * 1.0,
+                    clean * 0.99,
+                    clean * 1.01,
+                    clean * 0.98,
+                ],
+                axis=1,
+            )
             core = f"{idx}-1_src30-int90-p257-367_doa0"
             clean_name = f"clean_{core}_data.wav"
             mic_name = f"mic_{core}_{date_tag}.wav"
-            sf.write(str(clean_dir / clean_name), clean, samplerate=sample_rate)
+            sf.write(str(clean_dir / clean_name), clean_stack, samplerate=sample_rate)
             sf.write(str(mic_dir / mic_name), mic, samplerate=sample_rate)
 
     print(f"Dummy dataset created at: {root}")
@@ -63,15 +73,27 @@ def make_dummy_real_dir_dataset(root: Path, sample_rate: int = 16000) -> None:
             rel = path.relative_to(root)
             print(rel)
 
+    ref_mic_index = 0
+    clean_ref_mic_index = 0
     for split in splits:
-        RealFourMicDirDataset(
+        dataset = RealFourMicDirDataset(
             root=root,
             split=split,
             sample_rate=sample_rate,
             segment_seconds=1.0,
             num_mics=4,
+            ref_mic_index=ref_mic_index,
+            clean_ref_mic_index=clean_ref_mic_index,
+            clean_is_multichannel=True,
             random_crop=False,
             cache_metadata=False,
+        )
+        print(
+            "paired_samples={paired} ref_mic_index={ref_mic_index} clean_ref_mic_index={clean_ref_mic_index}".format(
+                paired=len(dataset),
+                ref_mic_index=ref_mic_index,
+                clean_ref_mic_index=clean_ref_mic_index,
+            )
         )
 
 

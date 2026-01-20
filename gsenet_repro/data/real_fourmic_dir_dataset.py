@@ -103,6 +103,8 @@ class RealFourMicDirDataset:
         segment_seconds: float = 1.0,
         num_mics: int = 4,
         ref_mic_index: int = 0,
+        clean_ref_mic_index: int = 0,
+        clean_is_multichannel: bool = True,
         random_crop: bool = False,
         eval_full_length: bool = False,
         fixed_crop: str = "center",
@@ -123,6 +125,11 @@ class RealFourMicDirDataset:
         self.ref_mic_index = int(ref_mic_index)
         if not 0 <= self.ref_mic_index < self.num_mics:
             raise ValueError("ref_mic_index out of range")
+        self.clean_ref_mic_index = int(clean_ref_mic_index)
+        self.clean_is_multichannel = bool(clean_is_multichannel)
+        if self.clean_is_multichannel:
+            if not 0 <= self.clean_ref_mic_index < self.num_mics:
+                raise ValueError("clean_ref_mic_index out of range")
         self.random_crop = bool(random_crop)
         self.eval_full_length = bool(eval_full_length)
         self.fixed_crop = fixed_crop
@@ -191,7 +198,17 @@ class RealFourMicDirDataset:
                         f"Expected {self.num_mics} channels for {mic_path}, got {mic_info.channels}"
                     )
                 clean_info = _load_audio_info(clean_path)
-                if clean_info.channels > 1:
+                if self.clean_is_multichannel:
+                    if clean_info.channels <= self.clean_ref_mic_index:
+                        raise ValueError(
+                            "Clean audio {path} has {channels} channels, cannot select "
+                            "clean_ref_mic_index={index}.".format(
+                                path=clean_path,
+                                channels=clean_info.channels,
+                                index=self.clean_ref_mic_index,
+                            )
+                        )
+                elif clean_info.channels > 1:
                     warnings.warn(
                         f"Clean audio {clean_path} has {clean_info.channels} channels; using channel 0.",
                         RuntimeWarning,
@@ -244,7 +261,17 @@ class RealFourMicDirDataset:
                 f"Expected {self.num_mics} channels for {mic_path}, got {mic_info.channels}"
             )
         clean_info = _load_audio_info(clean_path)
-        if clean_info.channels > 1:
+        if self.clean_is_multichannel:
+            if clean_info.channels <= self.clean_ref_mic_index:
+                raise ValueError(
+                    "Clean audio {path} has {channels} channels, cannot select "
+                    "clean_ref_mic_index={index}.".format(
+                        path=clean_path,
+                        channels=clean_info.channels,
+                        index=self.clean_ref_mic_index,
+                    )
+                )
+        elif clean_info.channels > 1:
             warnings.warn(
                 f"Clean audio {clean_path} has {clean_info.channels} channels; using channel 0.",
                 RuntimeWarning,
@@ -300,33 +327,52 @@ class RealFourMicDirDataset:
                 f"Expected {self.num_mics} channels for {mic_path}, got {mic_audio.shape[1]}"
             )
 
-        if clean_audio.shape[1] > 1:
-            clean_audio = clean_audio[:, 0:1]
+        if self.clean_is_multichannel:
+            if clean_audio.shape[1] <= self.clean_ref_mic_index:
+                raise ValueError(
+                    "Clean audio {path} has {channels} channels, cannot select "
+                    "clean_ref_mic_index={index}.".format(
+                        path=clean_path,
+                        channels=clean_audio.shape[1],
+                        index=self.clean_ref_mic_index,
+                    )
+                )
+            clean_audio_mono = clean_audio[:, self.clean_ref_mic_index]
+        else:
+            if clean_audio.shape[1] > 1:
+                warnings.warn(
+                    f"Clean audio {clean_path} has {clean_audio.shape[1]} channels; using channel 0.",
+                    RuntimeWarning,
+                )
+            clean_audio_mono = clean_audio[:, 0]
 
         if not self.eval_full_length:
             mic_audio = _ensure_length_2d(mic_audio, segment_frames_orig)
-            clean_audio = _ensure_length_2d(clean_audio, segment_frames_orig)
+            clean_audio_mono = _ensure_length(clean_audio_mono, segment_frames_orig)
 
         if self.resample and mic_info.sample_rate != self.sample_rate:
             mic_audio = resample_poly(
                 mic_audio, self.sample_rate, mic_info.sample_rate, axis=0
             ).astype(np.float32)
             clean_audio = resample_poly(
-                clean_audio, self.sample_rate, mic_info.sample_rate, axis=0
+                clean_audio_mono, self.sample_rate, mic_info.sample_rate, axis=0
             ).astype(np.float32)
             if not self.eval_full_length:
                 mic_audio = _ensure_length_2d(mic_audio, self.segment_frames_target)
-                clean_audio = _ensure_length_2d(clean_audio, self.segment_frames_target)
+                clean_audio = _ensure_length(clean_audio, self.segment_frames_target)
+            clean_audio_mono = clean_audio
+        else:
+            clean_audio = clean_audio_mono
 
         if self.eval_full_length:
             segment_frames_target = mic_audio.shape[0]
         else:
             segment_frames_target = self.segment_frames_target
             mic_audio = _ensure_length_2d(mic_audio, segment_frames_target)
-            clean_audio = _ensure_length_2d(clean_audio, segment_frames_target)
+            clean_audio = _ensure_length(clean_audio, segment_frames_target)
 
         x_mics = mic_audio.T.astype(np.float32)
-        yt = clean_audio[:, 0].astype(np.float32)
+        yt = clean_audio.astype(np.float32)
         y1 = x_mics[self.ref_mic_index]
 
         meta = {
@@ -343,6 +389,8 @@ class RealFourMicDirDataset:
             "eval_full_length": self.eval_full_length,
             "clean_channels": clean_info.channels,
             "mic_channels": mic_info.channels,
+            "ref_mic_index": self.ref_mic_index,
+            "clean_ref_mic_index": self.clean_ref_mic_index,
         }
 
         sample = {

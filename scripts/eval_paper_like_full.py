@@ -70,6 +70,8 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
             segment_seconds=data_config["segment_seconds"],
             num_mics=data_config["num_mics"],
             ref_mic_index=data_config["ref_mic_index"],
+            clean_ref_mic_index=data_config.get("clean_ref_mic_index", 0),
+            clean_is_multichannel=bool(data_config.get("clean_is_multichannel", True)),
             random_crop=False,
             eval_full_length=bool(data_config.get("eval_full_length", False)),
             fixed_crop=data_config.get("fixed_crop", "center"),
