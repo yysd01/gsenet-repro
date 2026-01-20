@@ -9,6 +9,8 @@ sample_rate = 16000
 segment_seconds = 1.0
 num_mics = 4
 ref_mic_index = 0
+clean_ref_mic_index = 0
+clean_is_multichannel = true
 root = "artifacts/dummy_real_dir_dataset"
 split = "train"
 random_crop = true
@@ -123,3 +125,9 @@ enable_pesq = true
 enable_sisdr = true
 enable_sisnr = true
 enable_snr = true
+
+[pairing]
+clean_prefix = "clean_"
+mic_prefix = "mic_"
+drop_last_underscore_segment = true
+strict_pairing = false

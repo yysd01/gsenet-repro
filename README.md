@@ -162,7 +162,7 @@ python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 200
 ```
 dataset_root/
   train/
-    clean/  # 单通道 wav
+    clean/  # 可为多通道 wav（默认从 clean_ref_mic_index 取目标）
     mic/    # 4 通道 wav
   valid/
     clean/
@@ -175,6 +175,8 @@ dataset_root/
 同一条样本在 `clean/` 与 `mic/` 下文件名一致（例如 `clean/0001.wav` 对应 `mic/0001.wav`）。
 
 **Filename pairing rule**：默认使用文件名的 canonical key 来配对 clean/mic。规则为：去掉扩展名后，若前缀是 `clean_` 或 `mic_` 则移除；再丢弃最后一个 `_` 之后的尾缀（例如 `clean_1-1_src30-int90-p257-367_doa0_data.wav` 与 `mic_1-1_src30-int90-p257-367_doa0_20251112.wav` 会配对到 key `1-1_src30-int90-p257-367_doa0`）。可在配置文件的 `[pairing]` 中调整 `clean_prefix`/`mic_prefix`/`drop_last_underscore_segment`/`strict_pairing` 等规则。
+
+`ref_mic_index` 用于从 noisy mic 中取 `y1`，`clean_ref_mic_index` 用于从 clean 多通道中取 `yt`（若 `clean_is_multichannel=false` 则兼容单通道 clean）。
 
 快速验收：
 
