@@ -58,6 +58,22 @@ def main() -> None:
     parser.add_argument("--num_batches", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--write_wavs", action="store_true", help="Write per-sample wav outputs.")
+    parser.add_argument("--max_wavs", type=int, default=20, help="Max samples to export.")
+    parser.add_argument("--wav_dir", type=str, default=None, help="Directory for exported wavs.")
+    parser.add_argument(
+        "--wav_norm",
+        type=str,
+        default="peak",
+        choices=("peak", "none"),
+        help="Peak normalize audio before writing.",
+    )
+    parser.add_argument(
+        "--save_mic_4ch",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write multi-channel mic wav for each sample.",
+    )
     args, unknown = parser.parse_known_args()
 
     if args.run_dir is None and args.ckpt_path is None:
@@ -83,6 +99,18 @@ def main() -> None:
     ]
     if args.config is not None:
         argv.extend(["--config", args.config])
+    if args.write_wavs:
+        argv.append("--write_wavs")
+    if args.max_wavs is not None:
+        argv.extend(["--max_wavs", str(args.max_wavs)])
+    if args.wav_dir is not None:
+        argv.extend(["--wav_dir", str(args.wav_dir)])
+    if args.wav_norm is not None:
+        argv.extend(["--wav_norm", args.wav_norm])
+    if args.save_mic_4ch:
+        argv.append("--save_mic_4ch")
+    else:
+        argv.append("--no-save-mic-4ch")
     argv.extend(unknown)
     sys.argv = argv
     _eval_module.main()
@@ -98,6 +126,12 @@ def main() -> None:
         writer = csv.writer(handle)
         writer.writerow(summary.keys())
         writer.writerow([summary[key] for key in summary.keys()])
+
+    per_sample_path = out_dir / "per_sample_metrics.csv"
+    if per_sample_path.exists():
+        (artifacts_dir / "per_sample_metrics.csv").write_text(
+            per_sample_path.read_text(), encoding="utf-8"
+        )
 
     report_path = artifacts_dir / "REPORT.md"
     _write_summary_table(summary, report_path)
