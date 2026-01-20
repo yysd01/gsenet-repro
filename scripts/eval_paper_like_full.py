@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
 import json
 from pathlib import Path
 import sys
+import re
 
 import numpy as np
 import soundfile as sf
@@ -32,6 +34,7 @@ from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
+from gsenet_repro.io.audio import safe_write_wav
 
 
 def _normalize_audio(x: np.ndarray, peak: float = 0.99) -> np.ndarray:
@@ -128,6 +131,28 @@ def _build_model(config: dict) -> tuple[torch.nn.Module, str]:
     return model, model_name
 
 
+def _sanitize_key(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]+", "_", value.strip())
+    return cleaned.strip("_") or "sample"
+
+
+def _get_meta_list(meta: object, batch_size: int) -> list[dict[str, object] | None]:
+    if isinstance(meta, list):
+        return meta
+    if isinstance(meta, dict):
+        expanded = []
+        for idx in range(batch_size):
+            item: dict[str, object] = {}
+            for key, value in meta.items():
+                if isinstance(value, (list, tuple)) and len(value) > idx:
+                    item[key] = value[idx]
+                else:
+                    item[key] = value
+            expanded.append(item)
+        return expanded
+    return [None] * batch_size
+
+
 def _forward_model(
     model: torch.nn.Module,
     model_name: str,
@@ -151,6 +176,22 @@ def main() -> None:
     parser.add_argument("--num_batches", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--write_wavs", action="store_true", help="Write per-sample wav outputs.")
+    parser.add_argument("--max_wavs", type=int, default=20, help="Max samples to export.")
+    parser.add_argument("--wav_dir", type=str, default=None, help="Directory for exported wavs.")
+    parser.add_argument(
+        "--wav_norm",
+        type=str,
+        default="peak",
+        choices=("peak", "none"),
+        help="Peak normalize audio before writing.",
+    )
+    parser.add_argument(
+        "--save_mic_4ch",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Write multi-channel mic wav for each sample.",
+    )
     args = parser.parse_args()
 
     ckpt_path = Path(args.ckpt_path)
@@ -166,6 +207,9 @@ def main() -> None:
 
     out_dir = Path(args.out_dir) if args.out_dir is not None else ckpt_path.parents[1] / "eval_outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = ckpt_path.parents[1]
+    wav_root = Path(args.wav_dir) if args.wav_dir is not None else run_dir / "artifacts" / "test_wavs"
+    wav_split_dir = wav_root / "test"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -207,6 +251,8 @@ def main() -> None:
         print("pesq not installed, skipping PESQ metrics.", file=sys.stderr)
 
     audio_samples = []
+    per_sample_rows: list[dict[str, object]] = []
+    wavs_written = 0
     with torch.no_grad():
         for batch_idx, batch in enumerate(loader):
             if batch_idx >= args.num_batches:
@@ -229,6 +275,7 @@ def main() -> None:
                 y1 = batch["y1"].to(device)
                 y2 = batch["y2"].to(device)
                 yt = batch["yt"].to(device)
+                x_mics = batch.get("x_mics")
             y_hat = _forward_model(model, model_name, y0, y1, y2)
 
             loss_y1 = stft_magnitude_loss(y1, yt, stft_params=loss_stft)
@@ -237,21 +284,119 @@ def main() -> None:
             loss_y1_vals.append(float(loss_y1.item()))
             loss_y0_vals.append(float(loss_y0.item()))
             loss_yhat_vals.append(float(loss_yhat.item()))
-            snr_y1_vals.append(float(snr_db(yt, y1).mean().item()))
-            snr_y0_vals.append(float(snr_db(yt, y0).mean().item()))
-            snr_yhat_vals.append(float(snr_db(yt, y_hat).mean().item()))
-            sisnr_y1_vals.append(float(si_snr_db(yt, y1).mean().item()))
-            sisnr_y0_vals.append(float(si_snr_db(yt, y0).mean().item()))
-            sisnr_yhat_vals.append(float(si_snr_db(yt, y_hat).mean().item()))
-            sisdr_y1_vals.append(float(sisdr(yt, y1).mean().item()))
-            sisdr_y0_vals.append(float(sisdr(yt, y0).mean().item()))
-            sisdr_yhat_vals.append(float(sisdr(yt, y_hat).mean().item()))
-            if has_pesq:
-                for idx in range(yt.shape[0]):
+            snr_y1_batch = snr_db(yt, y1).cpu().numpy()
+            snr_y0_batch = snr_db(yt, y0).cpu().numpy()
+            snr_yhat_batch = snr_db(yt, y_hat).cpu().numpy()
+            sisnr_y1_batch = si_snr_db(yt, y1).cpu().numpy()
+            sisnr_y0_batch = si_snr_db(yt, y0).cpu().numpy()
+            sisnr_yhat_batch = si_snr_db(yt, y_hat).cpu().numpy()
+            sisdr_y1_batch = sisdr(yt, y1).cpu().numpy()
+            sisdr_y0_batch = sisdr(yt, y0).cpu().numpy()
+            sisdr_yhat_batch = sisdr(yt, y_hat).cpu().numpy()
+            snr_y1_vals.append(float(np.mean(snr_y1_batch)))
+            snr_y0_vals.append(float(np.mean(snr_y0_batch)))
+            snr_yhat_vals.append(float(np.mean(snr_yhat_batch)))
+            sisnr_y1_vals.append(float(np.mean(sisnr_y1_batch)))
+            sisnr_y0_vals.append(float(np.mean(sisnr_y0_batch)))
+            sisnr_yhat_vals.append(float(np.mean(sisnr_yhat_batch)))
+            sisdr_y1_vals.append(float(np.mean(sisdr_y1_batch)))
+            sisdr_y0_vals.append(float(np.mean(sisdr_y0_batch)))
+            sisdr_yhat_vals.append(float(np.mean(sisdr_yhat_batch)))
+
+            pesq_y1_batch = []
+            pesq_y0_batch = []
+            pesq_yhat_batch = []
+            for idx in range(yt.shape[0]):
+                if has_pesq:
                     ref = yt[idx].cpu().numpy()
-                    pesq_y1_vals.append(pesq_score(ref, y1[idx].cpu().numpy(), sample_rate))
-                    pesq_y0_vals.append(pesq_score(ref, y0[idx].cpu().numpy(), sample_rate))
-                    pesq_yhat_vals.append(pesq_score(ref, y_hat[idx].cpu().numpy(), sample_rate))
+                    pesq_y1 = pesq_score(ref, y1[idx].cpu().numpy(), sample_rate)
+                    pesq_y0 = pesq_score(ref, y0[idx].cpu().numpy(), sample_rate)
+                    pesq_yhat = pesq_score(ref, y_hat[idx].cpu().numpy(), sample_rate)
+                    pesq_y1_vals.append(pesq_y1)
+                    pesq_y0_vals.append(pesq_y0)
+                    pesq_yhat_vals.append(pesq_yhat)
+                else:
+                    pesq_y1 = float("nan")
+                    pesq_y0 = float("nan")
+                    pesq_yhat = float("nan")
+                pesq_y1_batch.append(pesq_y1)
+                pesq_y0_batch.append(pesq_y0)
+                pesq_yhat_batch.append(pesq_yhat)
+
+            meta_list = _get_meta_list(batch.get("meta"), int(yt.shape[0]))
+            for idx in range(int(yt.shape[0])):
+                meta = meta_list[idx]
+                if meta and isinstance(meta, dict):
+                    raw_key = meta.get("pair_key") or meta.get("basename")
+                else:
+                    raw_key = None
+                if raw_key is None:
+                    raw_key = f"sample_{batch_idx * args.batch_size + idx:05d}"
+                sample_key = _sanitize_key(str(raw_key))
+                write_paths = {}
+                if args.write_wavs and wavs_written < args.max_wavs:
+                    y1_np = y1[idx].detach().cpu().numpy()
+                    y0_np = y0[idx].detach().cpu().numpy()
+                    yhat_np = y_hat[idx].detach().cpu().numpy()
+                    yt_np = yt[idx].detach().cpu().numpy()
+                    write_paths = {
+                        "path_y1": wav_split_dir / f"{sample_key}_y1_ref.wav",
+                        "path_y0": wav_split_dir / f"{sample_key}_y0_bf.wav",
+                        "path_yhat": wav_split_dir / f"{sample_key}_yhat.wav",
+                        "path_yt": wav_split_dir / f"{sample_key}_yt.wav",
+                    }
+                    safe_write_wav(write_paths["path_y1"], y1_np, sample_rate, norm=args.wav_norm)
+                    safe_write_wav(write_paths["path_y0"], y0_np, sample_rate, norm=args.wav_norm)
+                    safe_write_wav(write_paths["path_yhat"], yhat_np, sample_rate, norm=args.wav_norm)
+                    safe_write_wav(write_paths["path_yt"], yt_np, sample_rate, norm=args.wav_norm)
+                    if args.save_mic_4ch and x_mics is not None:
+                        mic_np = x_mics[idx].detach().cpu().numpy()
+                        mic_path = wav_split_dir / f"{sample_key}_mic4ch.wav"
+                        safe_write_wav(mic_path, mic_np, sample_rate, norm=args.wav_norm)
+                        write_paths["path_mic4ch"] = mic_path
+                    wavs_written += 1
+
+                row = {
+                    "sample_key": sample_key,
+                    "snr_y1": float(snr_y1_batch[idx]),
+                    "snr_y0": float(snr_y0_batch[idx]),
+                    "snr_yhat": float(snr_yhat_batch[idx]),
+                    "sisnr_y1": float(sisnr_y1_batch[idx]),
+                    "sisnr_y0": float(sisnr_y0_batch[idx]),
+                    "sisnr_yhat": float(sisnr_yhat_batch[idx]),
+                    "sisdr_y1": float(sisdr_y1_batch[idx]),
+                    "sisdr_y0": float(sisdr_y0_batch[idx]),
+                    "sisdr_yhat": float(sisdr_yhat_batch[idx]),
+                    "pesq_y1": float(pesq_y1_batch[idx]),
+                    "pesq_y0": float(pesq_y0_batch[idx]),
+                    "pesq_yhat": float(pesq_yhat_batch[idx]),
+                    "delta_snr_y0_vs_y1": float(snr_y0_batch[idx] - snr_y1_batch[idx]),
+                    "delta_snr_yhat_vs_y1": float(snr_yhat_batch[idx] - snr_y1_batch[idx]),
+                    "delta_snr_yhat_vs_y0": float(snr_yhat_batch[idx] - snr_y0_batch[idx]),
+                    "delta_sisnr_y0_vs_y1": float(sisnr_y0_batch[idx] - sisnr_y1_batch[idx]),
+                    "delta_sisnr_yhat_vs_y1": float(sisnr_yhat_batch[idx] - sisnr_y1_batch[idx]),
+                    "delta_sisnr_yhat_vs_y0": float(sisnr_yhat_batch[idx] - sisnr_y0_batch[idx]),
+                    "delta_sisdr_y0_vs_y1": float(sisdr_y0_batch[idx] - sisdr_y1_batch[idx]),
+                    "delta_sisdr_yhat_vs_y1": float(sisdr_yhat_batch[idx] - sisdr_y1_batch[idx]),
+                    "delta_sisdr_yhat_vs_y0": float(sisdr_yhat_batch[idx] - sisdr_y0_batch[idx]),
+                    "delta_pesq_y0_vs_y1": float(pesq_y0_batch[idx] - pesq_y1_batch[idx]),
+                    "delta_pesq_yhat_vs_y1": float(pesq_yhat_batch[idx] - pesq_y1_batch[idx]),
+                    "delta_pesq_yhat_vs_y0": float(pesq_yhat_batch[idx] - pesq_y0_batch[idx]),
+                    "path_y1": "",
+                    "path_y0": "",
+                    "path_yhat": "",
+                    "path_yt": "",
+                }
+                if args.save_mic_4ch:
+                    row["path_mic4ch"] = ""
+                if write_paths:
+                    row["path_y1"] = str(write_paths["path_y1"])
+                    row["path_y0"] = str(write_paths["path_y0"])
+                    row["path_yhat"] = str(write_paths["path_yhat"])
+                    row["path_yt"] = str(write_paths["path_yt"])
+                    if "path_mic4ch" in write_paths:
+                        row["path_mic4ch"] = str(write_paths["path_mic4ch"])
+                per_sample_rows.append(row)
 
             if len(audio_samples) < 3:
                 for idx in range(y0.shape[0]):
@@ -324,6 +469,14 @@ def main() -> None:
     with (out_dir / "summary.csv").open("w", newline="") as handle:
         handle.write(",".join(summary.keys()) + "\n")
         handle.write(",".join(f"{summary[key]:.6f}" for key in summary.keys()) + "\n")
+
+    if per_sample_rows:
+        per_sample_path = out_dir / "per_sample_metrics.csv"
+        per_sample_fields = list(per_sample_rows[0].keys())
+        with per_sample_path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=per_sample_fields)
+            writer.writeheader()
+            writer.writerows(per_sample_rows)
 
     audio_dir = out_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
