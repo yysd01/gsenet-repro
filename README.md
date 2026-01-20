@@ -53,6 +53,16 @@ python scripts/smoke_streaming.py
 
 该脚本需要安装 torch；若未安装则会自动跳过。
 
+## MCWFStreamer (frame-wise streaming)
+
+新增 `MCWFStreamer` 实现 3-mic 逐帧流式 MCWF。每推进一个 hop 形成新帧，仅使用当前帧与过去 3 帧的因果窗统计功率（`causal_frames=4`），更新 Wiener 增益并立即输出该帧对应的 `hop_length` 样本。该实现显式维护 `algorithmic_delay_samples`（默认 `win_length - hop_length`），用于对齐离线 MCWF 输出。可运行：
+
+```bash
+python scripts/smoke_mcwf_streamer.py
+```
+
+通过去掉前导延迟样本，可与离线 MCWF 输出对齐并允许极小数值误差。该实现为论文 MCWF 的可运行简化版，后续可替换更精确的 beamformer 实现。
+
 ## MCWF Implementation
 
 新增 STFT 域的简化多通道 Wiener 滤波器（MCWF）接口，面向论文中的三麦克风配置。该接口接收三通道复数 STFT 输入 `(B, F, T, 3)`，使用 4 帧因果滑窗统计每个频点的功率谱，并按信号/噪声功率比估计增益，输出与输入形状一致的频域强度谱：
@@ -70,6 +80,17 @@ output = mcwf(
 ```
 
 该接口作为后续深度网络集成的基础模块，方便在三麦克风 STFT 特征上进行滤波预处理与质量对比。
+
+## Metrics
+
+评测指标包含：`snr`、`sisnr`、`sisdr` 与可选的 `pesq`。`pesq` 依赖 `pesq` 包，可能需要编译器，故作为可选依赖单独提供：
+
+```bash
+python -m pip install -r requirements.txt -r requirements-torch.txt
+python -m pip install -r requirements-metrics.txt
+```
+
+若未安装 `pesq`，评测会跳过并在输出中写入 `NaN`。提升值（improvement）同时提供相对 `y1` 与 `y0` 的对比，例如 `delta_sisdr_yhat_vs_y0`、`delta_pesq_yhat_vs_y1` 等。
 
 ## MCWF + GSENet 模型集成
 
@@ -93,8 +114,8 @@ python scripts/smoke_train_paper_like.py
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-torch.txt
-python scripts/train_paper_like_full.py --num_steps 2000
-python scripts/eval_paper_like_full.py --ckpt_path <.../best.pt>
+python scripts/train.py --num_steps 2000
+python scripts/test.py --run_dir <...>
 python scripts/report_paper_like_full.py --run_dir <...>
 ```
 

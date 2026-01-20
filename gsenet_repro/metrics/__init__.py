@@ -1,5 +1,12 @@
 """Metrics helpers."""
 
-from .metrics_torch import si_snr_db, snr_db
+import importlib.util
 
-__all__ = ["si_snr_db", "snr_db"]
+from .metrics_pesq import pesq_available, pesq_score
+
+__all__ = ["pesq_available", "pesq_score"]
+
+if importlib.util.find_spec("torch") is not None:  # pragma: no cover
+    from .metrics_torch import batch_sisdr, si_snr_db, sisdr, snr_db
+
+    __all__ += ["batch_sisdr", "si_snr_db", "sisdr", "snr_db"]

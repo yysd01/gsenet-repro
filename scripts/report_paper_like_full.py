@@ -40,6 +40,11 @@ def _maybe_make_figures(run_dir: Path, metrics_rows: list[dict[str, str]]) -> li
     loss = [float(row["loss"]) for row in metrics_rows]
     snr_impr = [float(row["snr_impr"]) for row in metrics_rows]
     sisnr_impr = [float(row["sisnr_impr"]) for row in metrics_rows]
+    sisdr_impr = (
+        [float(row["sisdr_impr"]) for row in metrics_rows]
+        if "sisdr_impr" in metrics_rows[0]
+        else []
+    )
 
     figures_dir = run_dir / "figures"
     figures_dir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +76,16 @@ def _maybe_make_figures(run_dir: Path, metrics_rows: list[dict[str, str]]) -> li
     plt.savefig(sisnr_path)
     plt.close()
     paths.append(str(sisnr_path.relative_to(run_dir)))
+
+    if sisdr_impr:
+        plt.figure()
+        plt.plot(steps, sisdr_impr)
+        plt.xlabel("step")
+        plt.ylabel("sisdr_impr")
+        sisdr_path = figures_dir / "sisdr_improvement_curve.png"
+        plt.savefig(sisdr_path)
+        plt.close()
+        paths.append(str(sisdr_path.relative_to(run_dir)))
 
     return paths
 
@@ -120,6 +135,8 @@ def main() -> None:
                 f"| loss | {float(best_eval.get('loss', 0.0)):.6f} |",
                 f"| snr_impr | {float(best_eval.get('snr_impr', 0.0)):.4f} |",
                 f"| sisnr_impr | {float(best_eval.get('sisnr_impr', 0.0)):.4f} |",
+                f"| sisdr_impr | {float(best_eval.get('sisdr_impr', 0.0)):.4f} |",
+                f"| pesq_impr | {float(best_eval.get('pesq_impr', 0.0)):.4f} |",
             ]
         )
 
@@ -135,6 +152,8 @@ def main() -> None:
                 f"| loss | {float(final_metrics.get('loss', 0.0)):.6f} |",
                 f"| snr_impr | {float(final_metrics.get('snr_impr', 0.0)):.4f} |",
                 f"| sisnr_impr | {float(final_metrics.get('sisnr_impr', 0.0)):.4f} |",
+                f"| sisdr_impr | {float(final_metrics.get('sisdr_impr', 0.0)):.4f} |",
+                f"| pesq_impr | {float(final_metrics.get('pesq_impr', 0.0)):.4f} |",
             ]
         )
 

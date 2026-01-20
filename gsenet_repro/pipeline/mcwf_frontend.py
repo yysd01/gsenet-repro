@@ -6,7 +6,7 @@ from typing import Dict
 import numpy as np
 
 from gsenet_repro.dsp import MODEL_STFT
-from gsenet_repro.dsp.mcwf import apply_mcwf_mask, mcwf
+from gsenet_repro.dsp.mcwf import apply_mcwf_mask
 from gsenet_repro.dsp.stft import istft, stft
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
@@ -15,16 +15,28 @@ else:  # pragma: no cover
     torch = None
 
 
-def _windowed_power(
-    input_stft: np.ndarray,
+def _windowed_stats(
+    power: np.ndarray,
     window_len: int,
-) -> np.ndarray:
-    power = np.abs(input_stft).astype(np.float32) ** 2
+) -> tuple[np.ndarray, np.ndarray]:
+    if window_len <= 0:
+        raise ValueError("window_len must be positive")
     power_pad = np.pad(power, ((0, 0), (0, 0), (window_len - 1, 0), (0, 0)))
     cumulative = np.cumsum(power_pad, axis=2, dtype=np.float32)
     cumulative = np.pad(cumulative, ((0, 0), (0, 0), (1, 0), (0, 0)), mode="constant")
     window_sum = cumulative[:, :, window_len:, :] - cumulative[:, :, :-window_len, :]
-    return window_sum / float(window_len)
+    mean = window_sum / float(window_len)
+
+    power_sq = power.astype(np.float32) ** 2
+    power_sq_pad = np.pad(power_sq, ((0, 0), (0, 0), (window_len - 1, 0), (0, 0)))
+    cumulative_sq = np.cumsum(power_sq_pad, axis=2, dtype=np.float32)
+    cumulative_sq = np.pad(
+        cumulative_sq, ((0, 0), (0, 0), (1, 0), (0, 0)), mode="constant"
+    )
+    window_sum_sq = cumulative_sq[:, :, window_len:, :] - cumulative_sq[:, :, :-window_len, :]
+    mean_sq = window_sum_sq / float(window_len)
+    var = np.maximum(mean_sq - mean**2, 0.0)
+    return mean, var
 
 
 def mcwf_make_y0(
@@ -34,8 +46,9 @@ def mcwf_make_y0(
 ) -> np.ndarray | "torch.Tensor":
     """Generate a single-channel MCWF output from 3-mic waveforms.
 
-    This is a simplified placeholder that reuses gsenet_repro.dsp.mcwf and
-    collapses the three channels with a noise-power-weighted average.
+    This is a simplified, reproducible MCWF implementation that applies a
+    causal windowed power estimate (default 4 frames), computes a Wiener-style
+    gain, and averages the three filtered channels into a single output.
     """
     input_is_torch = torch is not None and torch.is_tensor(x_mics)
     x_np = x_mics.detach().cpu().numpy() if input_is_torch else np.asarray(x_mics)
@@ -68,24 +81,10 @@ def mcwf_make_y0(
         stft_list.append(mic_stack)
     input_stft = np.stack(stft_list, axis=0)
 
-    windowed_power = mcwf(
-        input_stft,
-        stft_win_length=win_length,
-        stft_hop_size=hop_length,
-        noise_pow=0.0,
-        signal_pow=1.0,
-    )
-    if causal_frames != 4:
-        windowed_power = _windowed_power(input_stft, window_len=causal_frames)
-
-    signal_pow = windowed_power.mean(axis=2, keepdims=True)
-    noise_pow = windowed_power.var(axis=2, keepdims=True)
+    power = np.abs(input_stft).astype(np.float32) ** 2
+    signal_pow, noise_pow = _windowed_stats(power, window_len=causal_frames)
     filtered = apply_mcwf_mask(input_stft, noise_pow, signal_pow)
-
-    noise_pow_mic = np.mean(noise_pow, axis=(1, 2))
-    weights = 1.0 / (noise_pow_mic + 1e-8)
-    weights = weights / np.sum(weights, axis=1, keepdims=True)
-    y0_stft = np.sum(filtered * weights[:, None, None, :], axis=-1)
+    y0_stft = np.mean(filtered, axis=-1)
 
     y0_list = []
     for b in range(batch):

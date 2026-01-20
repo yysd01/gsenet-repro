@@ -27,7 +27,8 @@ from torch.utils.data import DataLoader
 
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
-from gsenet_repro.metrics.metrics_torch import si_snr_db, snr_db
+from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
+from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 
 
@@ -194,6 +195,9 @@ def main() -> None:
     metrics_path = run_dir / "metrics.csv"
     eval_path = run_dir / "eval.csv"
     best_metric = None
+    has_pesq = pesq_available()
+    if not has_pesq:
+        print("pesq not installed, skipping PESQ metrics.", file=sys.stderr)
 
     for step in range(1, args.num_steps + 1):
         batch = next(train_iter)
@@ -215,9 +219,12 @@ def main() -> None:
             snr_out = snr_db(yt, y_hat).mean().item()
             sisnr_in = si_snr_db(yt, y0).mean().item()
             sisnr_out = si_snr_db(yt, y_hat).mean().item()
+            sisdr_in = sisdr(yt, y0).mean().item()
+            sisdr_out = sisdr(yt, y_hat).mean().item()
 
         snr_impr = snr_out - snr_in
         sisnr_impr = sisnr_out - sisnr_in
+        sisdr_impr = sisdr_out - sisdr_in
 
         _write_csv_row(
             metrics_path,
@@ -230,6 +237,12 @@ def main() -> None:
                 "sisnr_in": sisnr_in,
                 "sisnr_out": sisnr_out,
                 "sisnr_impr": sisnr_impr,
+                "sisdr_in": sisdr_in,
+                "sisdr_out": sisdr_out,
+                "sisdr_impr": sisdr_impr,
+                "pesq_in": float("nan"),
+                "pesq_out": float("nan"),
+                "pesq_impr": float("nan"),
             },
             header=[
                 "step",
@@ -240,6 +253,12 @@ def main() -> None:
                 "sisnr_in",
                 "sisnr_out",
                 "sisnr_impr",
+                "sisdr_in",
+                "sisdr_out",
+                "sisdr_impr",
+                "pesq_in",
+                "pesq_out",
+                "pesq_impr",
             ],
         )
 
@@ -273,8 +292,30 @@ def main() -> None:
                 eval_sisnr_out = si_snr_db(
                     eval_batch_device["yt"], y_hat_eval
                 ).mean().item()
+                eval_sisdr_in = sisdr(
+                    eval_batch_device["yt"], eval_batch_device["y0"]
+                ).mean().item()
+                eval_sisdr_out = sisdr(
+                    eval_batch_device["yt"], y_hat_eval
+                ).mean().item()
             eval_snr_impr = eval_snr_out - eval_snr_in
             eval_sisnr_impr = eval_sisnr_out - eval_sisnr_in
+            eval_sisdr_impr = eval_sisdr_out - eval_sisdr_in
+            eval_pesq_in = float("nan")
+            eval_pesq_out = float("nan")
+            eval_pesq_impr = float("nan")
+            if has_pesq:
+                yt_np = eval_batch_device["yt"].cpu().numpy()
+                y0_np = eval_batch_device["y0"].cpu().numpy()
+                yhat_np = y_hat_eval.cpu().numpy()
+                pesq_in_vals = []
+                pesq_out_vals = []
+                for idx in range(yt_np.shape[0]):
+                    pesq_in_vals.append(pesq_score(yt_np[idx], y0_np[idx], args.sample_rate))
+                    pesq_out_vals.append(pesq_score(yt_np[idx], yhat_np[idx], args.sample_rate))
+                eval_pesq_in = float(np.mean(pesq_in_vals))
+                eval_pesq_out = float(np.mean(pesq_out_vals))
+                eval_pesq_impr = eval_pesq_out - eval_pesq_in
 
             _write_csv_row(
                 eval_path,
@@ -287,6 +328,12 @@ def main() -> None:
                     "sisnr_in": eval_sisnr_in,
                     "sisnr_out": eval_sisnr_out,
                     "sisnr_impr": eval_sisnr_impr,
+                    "sisdr_in": eval_sisdr_in,
+                    "sisdr_out": eval_sisdr_out,
+                    "sisdr_impr": eval_sisdr_impr,
+                    "pesq_in": eval_pesq_in,
+                    "pesq_out": eval_pesq_out,
+                    "pesq_impr": eval_pesq_impr,
                 },
                 header=[
                     "step",
@@ -297,6 +344,12 @@ def main() -> None:
                     "sisnr_in",
                     "sisnr_out",
                     "sisnr_impr",
+                    "sisdr_in",
+                    "sisdr_out",
+                    "sisdr_impr",
+                    "pesq_in",
+                    "pesq_out",
+                    "pesq_impr",
                 ],
             )
 
