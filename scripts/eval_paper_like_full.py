@@ -29,6 +29,7 @@ from gsenet_repro.data.real_dataset import RealMultichannelDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
+from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
@@ -87,6 +88,58 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
     )
 
 
+def _count_parameters(model: torch.nn.Module) -> int:
+    return sum(param.numel() for param in model.parameters())
+
+
+def _format_stft_params(stft_params: dict) -> str:
+    return (
+        "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
+            n_fft=stft_params.get("n_fft"),
+            win_length=stft_params.get("win_length"),
+            hop_length=stft_params.get("hop_length"),
+            window=stft_params.get("window", "hann"),
+            center=stft_params.get("center", False),
+        )
+    )
+
+
+def _build_model(config: dict) -> tuple[torch.nn.Module, str]:
+    model_config = config.get("model", {})
+    model_name = str(model_config.get("name", "gsenet_paper_scale"))
+    if model_name == "gsenet_paper_scale":
+        model = GSENetPaperScale(
+            stft_params=config["stft_model"],
+            leaky_relu_slope=float(model_config.get("leaky_relu_slope", 0.3)),
+            encoder_blocks=model_config.get("encoder_blocks"),
+            decoder_blocks=model_config.get("decoder_blocks"),
+            stem_channels=int(model_config.get("stem_channels", 16)),
+            head_channels=int(model_config.get("head_channels", 2)),
+            remove_dc=bool(model_config.get("remove_dc", False)),
+        )
+    elif model_name == "minimal":
+        model = MinimalGSENet(stft_params=config["stft_model"])
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
+    return model, model_name
+
+
+def _forward_model(
+    model: torch.nn.Module,
+    model_name: str,
+    y0: torch.Tensor,
+    y1: torch.Tensor,
+    y2: torch.Tensor | None,
+) -> torch.Tensor:
+    if model_name == "gsenet_paper_scale":
+        return model(y0, y1)
+    if model_name == "minimal":
+        if y2 is None:
+            raise ValueError("MinimalGSENet requires y2 input.")
+        return model(y0, y1, y2)
+    raise ValueError(f"Unknown model name: {model_name}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate GSENet model.")
     parser.add_argument("--ckpt_path", type=str, required=True)
@@ -112,9 +165,18 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = MinimalGSENet(stft_params=model_stft).to(device)
+    model, model_name = _build_model(config)
+    model = model.to(device)
     model.load_state_dict(ckpt["model_state"])
     model.eval()
+
+    print(
+        "model={name} params={params:.3f}M".format(
+            name=model_name, params=_count_parameters(model) / 1e6
+        )
+    )
+    print("model_stft " + _format_stft_params(model_stft))
+    print("loss_stft " + _format_stft_params(loss_stft))
 
     eval_seed = int(config["run"]["seed"]) + 2468
     total_samples = args.num_batches * args.batch_size
@@ -163,7 +225,7 @@ def main() -> None:
                 y1 = batch["y1"].to(device)
                 y2 = batch["y2"].to(device)
                 yt = batch["yt"].to(device)
-            y_hat = model(y0, y1, y2)
+            y_hat = _forward_model(model, model_name, y0, y1, y2)
 
             loss_y1 = stft_magnitude_loss(y1, yt, stft_params=loss_stft)
             loss_y0 = stft_magnitude_loss(y0, yt, stft_params=loss_stft)
@@ -242,6 +304,17 @@ def main() -> None:
         "delta_pesq_yhat_vs_y1": pesq_yhat_mean - pesq_y1_mean,
         "delta_pesq_yhat_vs_y0": pesq_yhat_mean - pesq_y0_mean,
     }
+
+    print(
+        "eval summary loss={loss:.6f} snr_impr={snr_impr:.2f} sisnr_impr={sisnr_impr:.2f} "
+        "sisdr_impr={sisdr_impr:.2f} pesq_impr={pesq_impr}".format(
+            loss=summary["loss_stft_yhat_mean"],
+            snr_impr=summary["delta_snr_yhat_vs_y0"],
+            sisnr_impr=summary["delta_sisnr_yhat_vs_y0"],
+            sisdr_impr=summary["delta_sisdr_yhat_vs_y0"],
+            pesq_impr=f"{summary['delta_pesq_yhat_vs_y0']:.2f}" if has_pesq else "NA",
+        )
+    )
 
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     with (out_dir / "summary.csv").open("w", newline="") as handle:
