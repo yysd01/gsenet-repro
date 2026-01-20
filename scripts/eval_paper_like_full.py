@@ -48,6 +48,7 @@ def _load_config_from_ckpt(ckpt: dict) -> dict:
 
 def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data.Dataset:
     data_config = config["data"]
+    pairing_config = config.get("pairing")
     if data_config["mode"] == "real":
         return RealMultichannelDataset(
             manifest_path=data_config.get("manifest_path"),
@@ -74,6 +75,7 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
             fixed_crop=data_config.get("fixed_crop", "center"),
             resample=bool(data_config.get("resample", True)),
             cache_metadata=bool(data_config.get("cache_metadata", True)),
+            pairing_config=pairing_config,
         )
     return PaperLikeDataset(
         sample_rate=data_config["sample_rate"],
