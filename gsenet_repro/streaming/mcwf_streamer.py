@@ -8,7 +8,7 @@ import torch
 
 
 class MCWFStreamer:
-    """Stateful frame-wise MCWF streamer for 3-mic input."""
+    """Stateful frame-wise MCWF streamer for multi-mic input."""
 
     def __init__(
         self,
@@ -20,6 +20,7 @@ class MCWFStreamer:
         window: str = "hann",
         center: bool = False,
         eps: float = 1e-8,
+        num_mics: int = 4,
     ) -> None:
         if window != "hann":
             raise ValueError("Only 'hann' window is supported")
@@ -31,6 +32,8 @@ class MCWFStreamer:
             raise ValueError("hop_length must be <= win_length")
         if causal_frames <= 0:
             raise ValueError("causal_frames must be positive")
+        if num_mics < 2:
+            raise ValueError("num_mics must be >= 2")
 
         self.sample_rate = sample_rate
         self.n_fft = n_fft
@@ -40,6 +43,7 @@ class MCWFStreamer:
         self.window = window
         self.center = center
         self.eps = eps
+        self.num_mics = num_mics
         self.algorithmic_delay_samples = win_length - hop_length
 
         self._window_cpu = torch.hann_window(win_length, periodic=False)
@@ -77,8 +81,8 @@ class MCWFStreamer:
     def process(self, x_chunk: torch.Tensor) -> torch.Tensor:
         """Process a chunk of audio and return the aligned output chunk."""
         x_chunk, squeeze = self._ensure_batch(x_chunk)
-        if x_chunk.shape[1] != 3:
-            raise ValueError("x_chunk must have 3 microphone channels")
+        if x_chunk.shape[1] != self.num_mics:
+            raise ValueError(f"x_chunk must have {self.num_mics} microphone channels")
 
         batch_size, _, chunk_len = x_chunk.shape
         if self._batch_size is None:
@@ -88,7 +92,7 @@ class MCWFStreamer:
 
         if self._input_buffer is None:
             self._input_buffer = torch.zeros(
-                (batch_size, 3, 0), device=x_chunk.device, dtype=x_chunk.dtype
+                (batch_size, self.num_mics, 0), device=x_chunk.device, dtype=x_chunk.dtype
             )
         self._input_buffer = torch.cat([self._input_buffer, x_chunk], dim=-1)
 
@@ -106,7 +110,7 @@ class MCWFStreamer:
             windowed = frame * window
             if self.win_length < self.n_fft:
                 pad = torch.zeros(
-                    (batch_size, 3, self.n_fft - self.win_length),
+                    (batch_size, self.num_mics, self.n_fft - self.win_length),
                     device=x_chunk.device,
                     dtype=x_chunk.dtype,
                 )

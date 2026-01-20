@@ -12,7 +12,7 @@ from gsenet_repro.streaming.mcwf_streamer import MCWFStreamer
 def test_mcwf_streamer_matches_block() -> None:
     torch.manual_seed(0)
     batch = 1
-    channels = 3
+    channels = 4
     length = 1600
     hop = 160
 
@@ -23,6 +23,7 @@ def test_mcwf_streamer_matches_block() -> None:
         win_length=320,
         hop_length=hop,
         causal_frames=4,
+        num_mics=channels,
     )
 
     outputs = []

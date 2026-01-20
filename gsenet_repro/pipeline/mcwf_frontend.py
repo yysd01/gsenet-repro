@@ -44,30 +44,30 @@ def mcwf_make_y0(
     stft_params: Dict[str, int] | None,
     causal_frames: int = 4,
 ) -> np.ndarray | "torch.Tensor":
-    """Generate a single-channel MCWF output from 3-mic waveforms.
+    """Generate a single-channel MCWF output from multi-mic waveforms.
 
     This is a simplified, reproducible MCWF implementation that applies a
     causal windowed power estimate (default 4 frames), computes a Wiener-style
-    gain, and averages the three filtered channels into a single output.
+    gain, and averages the filtered channels into a single output.
     """
     input_is_torch = torch is not None and torch.is_tensor(x_mics)
     x_np = x_mics.detach().cpu().numpy() if input_is_torch else np.asarray(x_mics)
 
     if x_np.ndim == 2:
         x_np = x_np[None, ...]
-    if x_np.ndim != 3 or x_np.shape[1] != 3:
-        raise ValueError("x_mics must have shape (3, T) or (B, 3, T)")
+    if x_np.ndim != 3 or x_np.shape[1] < 2:
+        raise ValueError("x_mics must have shape (C, T) or (B, C, T) with C>=2")
 
     params = dict(stft_params) if stft_params is not None else dict(MODEL_STFT)
     n_fft = int(params["n_fft"])
     win_length = int(params["win_length"])
     hop_length = int(params["hop_length"])
 
-    batch, _, length = x_np.shape
+    batch, channels, length = x_np.shape
     stft_list = []
     for b in range(batch):
         mic_stfts = []
-        for mic_idx in range(3):
+        for mic_idx in range(channels):
             mic_stfts.append(
                 stft(
                     x_np[b, mic_idx],

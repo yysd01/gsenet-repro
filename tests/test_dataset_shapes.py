@@ -6,7 +6,7 @@ torch = pytest.importorskip("torch")
 from torch.utils.data import DataLoader
 
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
-from gsenet_repro.data.paper_synth import generate_rir_3src_3mic
+from gsenet_repro.data.paper_synth import generate_rir_3src_4mic
 
 
 def test_paper_like_dataset_shapes() -> None:
@@ -29,16 +29,16 @@ def test_paper_like_dataset_shapes() -> None:
     assert yt.ndim == 2
     assert y0.shape == y1.shape == yt.shape
     assert x_mics.shape[0] == y0.shape[0]
-    assert x_mics.shape[1] == 3
+    assert x_mics.shape[1] == 4
     assert x_mics.shape[2] == y0.shape[1]
     assert torch.isfinite(y0).all()
     assert torch.isfinite(y1).all()
     assert torch.isfinite(yt).all()
 
 
-def test_rir_close_mic_direct_path_delay_3mic() -> None:
+def test_rir_close_mic_direct_path_delay_4mic() -> None:
     rng = np.random.default_rng(4)
-    rir, _ = generate_rir_3src_3mic(rng, max_direct_delay_diff=4)
+    rir, _ = generate_rir_3src_4mic(rng, max_direct_delay_diff=4)
     for src_idx in range(rir.shape[0]):
         delays = []
         for mic_idx in range(rir.shape[1]):

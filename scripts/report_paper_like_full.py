@@ -93,14 +93,18 @@ def _maybe_make_figures(run_dir: Path, metrics_rows: list[dict[str, str]]) -> li
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate paper-like training report.")
     parser.add_argument("--run_dir", type=str, required=True)
+    parser.add_argument("--config", type=str, default=None)
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
-    config_path = run_dir / "config.json"
+    config_path = run_dir / "config_resolved.json"
     metrics_path = run_dir / "metrics.csv"
     eval_path = run_dir / "eval.csv"
 
-    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    if args.config is not None:
+        config = json.loads(Path(args.config).read_text())
+    else:
+        config = json.loads(config_path.read_text()) if config_path.exists() else {}
     metrics_rows = _read_csv(metrics_path)
     eval_rows = _read_csv(eval_path)
 

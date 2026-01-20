@@ -1,0 +1,43 @@
+[run]
+seed = 0
+device = "auto"
+run_dir = ""
+
+[data]
+mode = "real"
+sample_rate = 16000
+segment_seconds = 1.0
+num_mics = 4
+ref_mic_index = 0
+manifest_path = "artifacts/dummy_real_dataset/manifest.csv"
+root_dir = ""
+use_mcwf = 1
+mcwf_causal_frames = 4
+
+[stft_model]
+n_fft = 320
+win_length = 320
+hop_length = 160
+window = "hann"
+center = false
+
+[stft_loss]
+n_fft = 1024
+win_length = 1024
+hop_length = 256
+
+[train]
+batch_size = 4
+num_steps = 2000
+lr = 1e-4
+log_every = 10
+eval_every = 200
+ckpt_every = 500
+num_workers = 0
+prefetch_factor = 2
+
+[metrics]
+enable_pesq = true
+enable_sisdr = true
+enable_sisnr = true
+enable_snr = true

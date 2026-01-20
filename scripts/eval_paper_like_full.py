@@ -22,7 +22,9 @@ if importlib.util.find_spec("torch") is None:
 import torch
 from torch.utils.data import DataLoader
 
+from gsenet_repro.config import resolve_config
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
+from gsenet_repro.data.real_dataset import RealMultichannelDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
@@ -34,12 +36,48 @@ def _normalize_audio(x: np.ndarray, peak: float = 0.99) -> np.ndarray:
     return (x / max_val * peak).astype(np.float32)
 
 
+def _load_config_from_ckpt(ckpt: dict) -> dict:
+    raw_config = ckpt.get("config", {})
+    if isinstance(raw_config, dict) and "data" in raw_config:
+        return raw_config
+    return resolve_config(None, overrides={"data": raw_config})
+
+
+def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data.Dataset:
+    data_config = config["data"]
+    if data_config["mode"] == "real":
+        return RealMultichannelDataset(
+            manifest_path=data_config.get("manifest_path"),
+            root_dir=data_config.get("root_dir"),
+            sample_rate=data_config["sample_rate"],
+            segment_seconds=data_config["segment_seconds"],
+            num_mics=data_config["num_mics"],
+            ref_mic_index=data_config["ref_mic_index"],
+            use_mcwf=bool(data_config["use_mcwf"]),
+            stft_params=config["stft_model"],
+            causal_frames=data_config["mcwf_causal_frames"],
+            seed=seed,
+        )
+    return PaperLikeDataset(
+        sample_rate=data_config["sample_rate"],
+        segment_seconds=data_config["segment_seconds"],
+        seed=seed,
+        num_samples=num_samples,
+        use_mcwf=bool(data_config["use_mcwf"]),
+        ref_mic=data_config["ref_mic_index"],
+        num_mics=data_config["num_mics"],
+        stft_params=config["stft_model"],
+        causal_frames=data_config["mcwf_causal_frames"],
+    )
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate paper-like GSENet model.")
+    parser = argparse.ArgumentParser(description="Evaluate GSENet model.")
     parser.add_argument("--ckpt_path", type=str, required=True)
     parser.add_argument("--out_dir", type=str, default=None)
     parser.add_argument("--num_batches", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--config", type=str, default=None)
     args = parser.parse_args()
 
     ckpt_path = Path(args.ckpt_path)
@@ -47,12 +85,11 @@ def main() -> None:
         raise SystemExit(f"Checkpoint not found: {ckpt_path}")
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
-    config = ckpt.get("config", {})
-    sample_rate = int(config.get("sample_rate", 16000))
-    segment_seconds = float(config.get("segment_seconds", 1.0))
-    model_stft = config.get("model_stft", {"n_fft": 320, "win_length": 320, "hop_length": 160})
-    loss_stft = config.get("loss_stft", {"n_fft": 1024, "win_length": 1024, "hop_length": 256})
-    use_mcwf = bool(config.get("use_mcwf", True))
+    config = resolve_config(args.config, overrides=_load_config_from_ckpt(ckpt))
+
+    sample_rate = int(config["data"]["sample_rate"])
+    model_stft = config["stft_model"]
+    loss_stft = config["stft_loss"]
 
     out_dir = Path(args.out_dir) if args.out_dir is not None else ckpt_path.parents[1] / "eval_outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -63,15 +100,9 @@ def main() -> None:
     model.load_state_dict(ckpt["model_state"])
     model.eval()
 
-    eval_seed = int(config.get("seed", 0)) + 2468
-    dataset = PaperLikeDataset(
-        sample_rate=sample_rate,
-        segment_seconds=segment_seconds,
-        seed=eval_seed,
-        num_samples=args.num_batches * args.batch_size,
-        use_mcwf=use_mcwf,
-        stft_params=model_stft,
-    )
+    eval_seed = int(config["run"]["seed"]) + 2468
+    total_samples = args.num_batches * args.batch_size
+    dataset = _make_dataset(config, num_samples=total_samples, seed=eval_seed)
     loader = DataLoader(dataset, batch_size=args.batch_size)
 
     loss_y1_vals = []
@@ -89,13 +120,15 @@ def main() -> None:
     pesq_y1_vals = []
     pesq_y0_vals = []
     pesq_yhat_vals = []
-    has_pesq = pesq_available()
+    has_pesq = pesq_available() if config["metrics"]["enable_pesq"] else False
     if not has_pesq:
         print("pesq not installed, skipping PESQ metrics.", file=sys.stderr)
 
     audio_samples = []
     with torch.no_grad():
-        for batch in loader:
+        for batch_idx, batch in enumerate(loader):
+            if batch_idx >= args.num_batches:
+                break
             y0 = batch["y0"].to(device)
             y1 = batch["y1"].to(device)
             y2 = batch["y2"].to(device)
