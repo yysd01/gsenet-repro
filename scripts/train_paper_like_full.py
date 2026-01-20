@@ -33,6 +33,7 @@ from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
+from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 
 try:  # pragma: no cover - optional tqdm
@@ -65,6 +66,67 @@ def _seed_everything(seed: int) -> None:
     torch.backends.cudnn.benchmark = False
 
 
+def _count_parameters(model: torch.nn.Module) -> int:
+    return sum(param.numel() for param in model.parameters())
+
+
+def _format_stft_params(stft_params: Dict[str, object]) -> str:
+    return (
+        "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
+            n_fft=stft_params.get("n_fft"),
+            win_length=stft_params.get("win_length"),
+            hop_length=stft_params.get("hop_length"),
+            window=stft_params.get("window", "hann"),
+            center=stft_params.get("center", False),
+        )
+    )
+
+
+def _dataset_size(dataset: torch.utils.data.Dataset) -> str:
+    if hasattr(dataset, "__len__"):
+        try:
+            return str(len(dataset))
+        except TypeError:
+            return "unknown"
+    return "unknown"
+
+
+def _build_model(config: Dict[str, object]) -> tuple[torch.nn.Module, str]:
+    model_config = config.get("model", {})
+    model_name = str(model_config.get("name", "gsenet_paper_scale"))
+    if model_name == "gsenet_paper_scale":
+        model = GSENetPaperScale(
+            stft_params=config["stft_model"],
+            leaky_relu_slope=float(model_config.get("leaky_relu_slope", 0.3)),
+            encoder_blocks=model_config.get("encoder_blocks"),
+            decoder_blocks=model_config.get("decoder_blocks"),
+            stem_channels=int(model_config.get("stem_channels", 16)),
+            head_channels=int(model_config.get("head_channels", 2)),
+            remove_dc=bool(model_config.get("remove_dc", False)),
+        )
+    elif model_name == "minimal":
+        model = MinimalGSENet(stft_params=config["stft_model"])
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
+    return model, model_name
+
+
+def _forward_model(
+    model: torch.nn.Module,
+    model_name: str,
+    y0: torch.Tensor,
+    y1: torch.Tensor,
+    y2: torch.Tensor | None,
+) -> torch.Tensor:
+    if model_name == "gsenet_paper_scale":
+        return model(y0, y1)
+    if model_name == "minimal":
+        if y2 is None:
+            raise ValueError("MinimalGSENet requires y2 input.")
+        return model(y0, y1, y2)
+    raise ValueError(f"Unknown model name: {model_name}")
+
+
 def _to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str, torch.Tensor]:
     moved: Dict[str, torch.Tensor] = {}
     for key, value in batch.items():
@@ -80,7 +142,7 @@ def _make_eval_batch(
     batch_size: int,
     stft_params: Dict[str, int],
     seed: int,
-) -> Dict[str, torch.Tensor]:
+) -> tuple[Dict[str, torch.Tensor], torch.utils.data.Dataset]:
     if data_config["mode"] == "real":
         dataset = RealMultichannelDataset(
             manifest_path=data_config.get("manifest_path"),
@@ -122,7 +184,7 @@ def _make_eval_batch(
             causal_frames=data_config["mcwf_causal_frames"],
         )
     loader = DataLoader(dataset, batch_size=batch_size)
-    return next(iter(loader))
+    return next(iter(loader)), dataset
 
 
 def _log_real_dir_dataset(dataset: RealFourMicDirDataset, split: str, data_config: Dict[str, object]) -> None:
@@ -248,7 +310,7 @@ def _log_eval_metrics(
     }
 
 
-def train_with_config(config: Dict[str, object]) -> None:
+def train_with_config(config: Dict[str, object], config_path: str | None = None) -> None:
     run_config = config["run"]
     data_config = config["data"]
     train_config = config["train"]
@@ -317,15 +379,38 @@ def train_with_config(config: Dict[str, object]) -> None:
     train_iter = iter(loader)
 
     eval_seed = run_config["seed"] + 1234
-    eval_batch = _make_eval_batch(
+    eval_batch, eval_dataset = _make_eval_batch(
         data_config=data_config,
         batch_size=train_config["batch_size"],
         stft_params=model_stft,
         seed=eval_seed,
     )
 
-    model = MinimalGSENet(stft_params=model_stft).to(device)
+    model, model_name = _build_model(config)
+    model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config["lr"])
+
+    print(
+        "config_path={config_path} data_mode={mode} split=train samples={samples} "
+        "batch_size={batch_size} num_steps={num_steps} lr={lr}".format(
+            config_path=config_path or "default",
+            mode=data_config["mode"],
+            samples=_dataset_size(dataset),
+            batch_size=train_config["batch_size"],
+            num_steps=train_config["num_steps"],
+            lr=train_config["lr"],
+        )
+    )
+    print(
+        "eval split=valid samples={samples}".format(samples=_dataset_size(eval_dataset))
+    )
+    print(
+        "model={name} params={params:.3f}M".format(
+            name=model_name, params=_count_parameters(model) / 1e6
+        )
+    )
+    print("model_stft " + _format_stft_params(model_stft))
+    print("loss_stft " + _format_stft_params(loss_stft))
 
     metrics_path = run_dir / "metrics.csv"
     eval_path = run_dir / "eval.csv"
@@ -365,7 +450,7 @@ def train_with_config(config: Dict[str, object]) -> None:
 
         model.train()
         optimizer.zero_grad()
-        y_hat = model(y0, y1, y2)
+        y_hat = _forward_model(model, model_name, y0, y1, y2)
         loss = stft_magnitude_loss(y_hat, yt, stft_params=loss_stft)
         loss.backward()
         optimizer.step()
@@ -426,10 +511,12 @@ def train_with_config(config: Dict[str, object]) -> None:
                 eval_batch_device = _prepare_batch_for_model(
                     _to_device(eval_batch, device), data_config, model_stft
                 )
-                y_hat_eval = model(
+                y_hat_eval = _forward_model(
+                    model,
+                    model_name,
                     eval_batch_device["y0"],
                     eval_batch_device["y1"],
-                    eval_batch_device["y2"],
+                    eval_batch_device.get("y2"),
                 )
                 eval_loss = stft_magnitude_loss(
                     y_hat_eval, eval_batch_device["yt"], stft_params=loss_stft
@@ -583,7 +670,7 @@ def main() -> None:
         overrides["train"] = train_overrides
 
     config = resolve_config(args.config, overrides=overrides)
-    train_with_config(config)
+    train_with_config(config, config_path=args.config)
 
 
 if __name__ == "__main__":

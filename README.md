@@ -43,6 +43,17 @@ python scripts/smoke_stft.py
 
 该实现提供基于 torch 的离线 STFT/iSTFT 工具与测试，用于对齐后续的离线模型原型。需要注意的是，STFT 的窗函数会带来算法级延迟，因此严格的 sample-level 因果性比较必须考虑窗口长度（`win_length`）并避开重叠区间。
 
+## Paper-scale GSENet (默认)
+
+默认训练/评测会使用 `GSENetPaperScale`（U-Net 论文规模），输入为 `y1`（reference mic）与 `y0`（MCWF/beamformer 输出）的 complex STFT 拼接（实/虚部共 4 通道），输出为 2 通道 complex STFT 并 iSTFT 还原单通道增强波形。模型前端 STFT 采用 `n_fft=320, win_length=320, hop_length=160`，loss 端 STFT 采用 `n_fft=1024, win_length=1024, hop_length=256`，激活函数为 `leaky-ReLU(0.3)`，所有卷积均为因果卷积（时间维仅左侧 padding）。
+
+如需切回最小模型用于调试，可在配置中设置：
+
+```toml
+[model]
+name = "minimal"
+```
+
 ## Streaming
 
 提供 `GSENetStreamer` 以 chunk 形式运行最小版 GSENet。streamer 采用固定的 `algorithmic_delay`（默认 `MODEL_STFT.win_length`）处理 STFT/OLA 带来的算法延迟，因此离线与流式输出在去掉前 `delay` 样本后应一致。可运行脚本验证：
@@ -114,12 +125,18 @@ python scripts/smoke_train_paper_like.py
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-torch.txt
-python scripts/train.py --config configs/paper_like_4mic.toml --num_steps 2000
+python scripts/train.py --config configs/real_dataset_paper_scale.toml --num_steps 2000
 python scripts/test.py --run_dir <...>
 python scripts/report_paper_like_full.py --run_dir <...>
 ```
 
 `mcwf_frontend` 以“各通道滤波后取均值”的规则将 4 路输出合成为单通道 `y0`（简化 MCWF 前端，便于复现训练接口；后续可替换为更真实的 beamformer 实现）。
+
+快速查看论文规模模型的参数量与 STFT 配置：
+
+```bash
+python scripts/print_model_stats.py --config configs/real_dataset_paper_scale.toml
+```
 
 ## 配置文件（TOML）
 

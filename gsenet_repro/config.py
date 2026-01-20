@@ -45,6 +45,27 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "win_length": 1024,
         "hop_length": 256,
     },
+    "model": {
+        "name": "gsenet_paper_scale",
+        "leaky_relu_slope": 0.3,
+        "stem_channels": 16,
+        "head_channels": 2,
+        "remove_dc": False,
+        "encoder_blocks": [
+            {"cin": 16, "cout": 32, "stime": 1, "sfreq": 2, "dtime": False},
+            {"cin": 32, "cout": 48, "stime": 2, "sfreq": 2, "dtime": False},
+            {"cin": 48, "cout": 48, "stime": 1, "sfreq": 2, "dtime": True},
+            {"cin": 48, "cout": 96, "stime": 1, "sfreq": 2, "dtime": True},
+            {"cin": 96, "cout": 96, "stime": 1, "sfreq": 2, "dtime": True},
+        ],
+        "decoder_blocks": [
+            {"cin": 96, "cout": 96, "stime": 1, "sfreq": 2, "dtime": True},
+            {"cin": 96, "cout": 48, "stime": 1, "sfreq": 2, "dtime": True},
+            {"cin": 48, "cout": 48, "stime": 1, "sfreq": 2, "dtime": True},
+            {"cin": 48, "cout": 32, "stime": 2, "sfreq": 2, "dtime": False},
+            {"cin": 32, "cout": 16, "stime": 1, "sfreq": 2, "dtime": False},
+        ],
+    },
     "train": {
         "batch_size": 4,
         "num_steps": 2000,
