@@ -24,7 +24,8 @@ from torch.utils.data import DataLoader
 
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
-from gsenet_repro.metrics.metrics_torch import si_snr_db, snr_db
+from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
+from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 
 
@@ -73,11 +74,24 @@ def main() -> None:
     )
     loader = DataLoader(dataset, batch_size=args.batch_size)
 
-    loss_vals = []
-    snr_in_vals = []
-    snr_out_vals = []
-    sisnr_in_vals = []
-    sisnr_out_vals = []
+    loss_y1_vals = []
+    loss_y0_vals = []
+    loss_yhat_vals = []
+    snr_y1_vals = []
+    snr_y0_vals = []
+    snr_yhat_vals = []
+    sisnr_y1_vals = []
+    sisnr_y0_vals = []
+    sisnr_yhat_vals = []
+    sisdr_y1_vals = []
+    sisdr_y0_vals = []
+    sisdr_yhat_vals = []
+    pesq_y1_vals = []
+    pesq_y0_vals = []
+    pesq_yhat_vals = []
+    has_pesq = pesq_available()
+    if not has_pesq:
+        print("pesq not installed, skipping PESQ metrics.", file=sys.stderr)
 
     audio_samples = []
     with torch.no_grad():
@@ -88,12 +102,27 @@ def main() -> None:
             yt = batch["yt"].to(device)
             y_hat = model(y0, y1, y2)
 
-            loss = stft_magnitude_loss(y_hat, yt, stft_params=loss_stft)
-            loss_vals.append(float(loss.item()))
-            snr_in_vals.append(float(snr_db(yt, y0).mean().item()))
-            snr_out_vals.append(float(snr_db(yt, y_hat).mean().item()))
-            sisnr_in_vals.append(float(si_snr_db(yt, y0).mean().item()))
-            sisnr_out_vals.append(float(si_snr_db(yt, y_hat).mean().item()))
+            loss_y1 = stft_magnitude_loss(y1, yt, stft_params=loss_stft)
+            loss_y0 = stft_magnitude_loss(y0, yt, stft_params=loss_stft)
+            loss_yhat = stft_magnitude_loss(y_hat, yt, stft_params=loss_stft)
+            loss_y1_vals.append(float(loss_y1.item()))
+            loss_y0_vals.append(float(loss_y0.item()))
+            loss_yhat_vals.append(float(loss_yhat.item()))
+            snr_y1_vals.append(float(snr_db(yt, y1).mean().item()))
+            snr_y0_vals.append(float(snr_db(yt, y0).mean().item()))
+            snr_yhat_vals.append(float(snr_db(yt, y_hat).mean().item()))
+            sisnr_y1_vals.append(float(si_snr_db(yt, y1).mean().item()))
+            sisnr_y0_vals.append(float(si_snr_db(yt, y0).mean().item()))
+            sisnr_yhat_vals.append(float(si_snr_db(yt, y_hat).mean().item()))
+            sisdr_y1_vals.append(float(sisdr(yt, y1).mean().item()))
+            sisdr_y0_vals.append(float(sisdr(yt, y0).mean().item()))
+            sisdr_yhat_vals.append(float(sisdr(yt, y_hat).mean().item()))
+            if has_pesq:
+                for idx in range(yt.shape[0]):
+                    ref = yt[idx].cpu().numpy()
+                    pesq_y1_vals.append(pesq_score(ref, y1[idx].cpu().numpy(), sample_rate))
+                    pesq_y0_vals.append(pesq_score(ref, y0[idx].cpu().numpy(), sample_rate))
+                    pesq_yhat_vals.append(pesq_score(ref, y_hat[idx].cpu().numpy(), sample_rate))
 
             if len(audio_samples) < 3:
                 for idx in range(y0.shape[0]):
@@ -108,17 +137,47 @@ def main() -> None:
                         }
                     )
 
-    snr_in_mean = float(np.mean(snr_in_vals))
-    snr_out_mean = float(np.mean(snr_out_vals))
-    sisnr_in_mean = float(np.mean(sisnr_in_vals))
-    sisnr_out_mean = float(np.mean(sisnr_out_vals))
+    snr_y1_mean = float(np.mean(snr_y1_vals))
+    snr_y0_mean = float(np.mean(snr_y0_vals))
+    snr_yhat_mean = float(np.mean(snr_yhat_vals))
+    sisnr_y1_mean = float(np.mean(sisnr_y1_vals))
+    sisnr_y0_mean = float(np.mean(sisnr_y0_vals))
+    sisnr_yhat_mean = float(np.mean(sisnr_yhat_vals))
+    sisdr_y1_mean = float(np.mean(sisdr_y1_vals))
+    sisdr_y0_mean = float(np.mean(sisdr_y0_vals))
+    sisdr_yhat_mean = float(np.mean(sisdr_yhat_vals))
+    pesq_y1_mean = float(np.mean(pesq_y1_vals)) if has_pesq else float("nan")
+    pesq_y0_mean = float(np.mean(pesq_y0_vals)) if has_pesq else float("nan")
+    pesq_yhat_mean = float(np.mean(pesq_yhat_vals)) if has_pesq else float("nan")
 
     summary = {
-        "loss_mean": float(np.mean(loss_vals)),
-        "snr_in_mean": snr_in_mean,
-        "snr_out_mean": snr_out_mean,
-        "snr_impr_mean": snr_out_mean - snr_in_mean,
-        "sisnr_impr_mean": sisnr_out_mean - sisnr_in_mean,
+        "loss_stft_y1_mean": float(np.mean(loss_y1_vals)),
+        "loss_stft_y0_mean": float(np.mean(loss_y0_vals)),
+        "loss_stft_yhat_mean": float(np.mean(loss_yhat_vals)),
+        "snr_y1_mean": snr_y1_mean,
+        "snr_y0_mean": snr_y0_mean,
+        "snr_yhat_mean": snr_yhat_mean,
+        "sisnr_y1_mean": sisnr_y1_mean,
+        "sisnr_y0_mean": sisnr_y0_mean,
+        "sisnr_yhat_mean": sisnr_yhat_mean,
+        "sisdr_y1_mean": sisdr_y1_mean,
+        "sisdr_y0_mean": sisdr_y0_mean,
+        "sisdr_yhat_mean": sisdr_yhat_mean,
+        "pesq_y1_mean": pesq_y1_mean,
+        "pesq_y0_mean": pesq_y0_mean,
+        "pesq_yhat_mean": pesq_yhat_mean,
+        "delta_snr_y0_vs_y1": snr_y0_mean - snr_y1_mean,
+        "delta_snr_yhat_vs_y1": snr_yhat_mean - snr_y1_mean,
+        "delta_snr_yhat_vs_y0": snr_yhat_mean - snr_y0_mean,
+        "delta_sisnr_y0_vs_y1": sisnr_y0_mean - sisnr_y1_mean,
+        "delta_sisnr_yhat_vs_y1": sisnr_yhat_mean - sisnr_y1_mean,
+        "delta_sisnr_yhat_vs_y0": sisnr_yhat_mean - sisnr_y0_mean,
+        "delta_sisdr_y0_vs_y1": sisdr_y0_mean - sisdr_y1_mean,
+        "delta_sisdr_yhat_vs_y1": sisdr_yhat_mean - sisdr_y1_mean,
+        "delta_sisdr_yhat_vs_y0": sisdr_yhat_mean - sisdr_y0_mean,
+        "delta_pesq_y0_vs_y1": pesq_y0_mean - pesq_y1_mean,
+        "delta_pesq_yhat_vs_y1": pesq_yhat_mean - pesq_y1_mean,
+        "delta_pesq_yhat_vs_y0": pesq_yhat_mean - pesq_y0_mean,
     }
 
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
