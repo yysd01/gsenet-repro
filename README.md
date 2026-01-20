@@ -133,6 +133,40 @@ python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 200
 
 ## 真实数据集读取（4-mic）
 
+提供两种真实数据集读取方式：
+
+- `RealMultichannelDataset`：基于 manifest 的多麦克风数据读取。
+- `RealFourMicDirDataset`：基于目录结构的 4-mic + clean 配对读取。
+
+### Real dataset (directory layout)
+
+目录结构示例：
+
+```
+dataset_root/
+  train/
+    clean/  # 单通道 wav
+    mic/    # 4 通道 wav
+  valid/
+    clean/
+    mic/
+  test/
+    clean/
+    mic/
+```
+
+同一条样本在 `clean/` 与 `mic/` 下文件名一致（例如 `clean/0001.wav` 对应 `mic/0001.wav`）。
+
+快速验收：
+
+```bash
+python scripts/make_dummy_real_dir_dataset.py
+python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 20 --run_dir artifacts/runs/_demo_real_dir
+python scripts/test.py --run_dir artifacts/runs/_demo_real_dir
+```
+
+### Manifest dataset (legacy)
+
 提供 `RealMultichannelDataset` 支持 manifest 读取真实 4-mic 数据。可以通过脚本生成 dummy 数据并验证端到端：
 
 ```bash
