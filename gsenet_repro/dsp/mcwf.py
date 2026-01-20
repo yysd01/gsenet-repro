@@ -14,9 +14,9 @@ def _validate_input(input_stft: np.ndarray, stft_win_length: int, stft_hop_size:
     if not isinstance(input_stft, np.ndarray):
         raise TypeError("input_stft must be a numpy array")
     if input_stft.ndim != 4:
-        raise ValueError("input_stft must have shape (B, F, T, 3)")
-    if input_stft.shape[-1] != 3:
-        raise ValueError("input_stft must have 3 microphone channels")
+        raise ValueError("input_stft must have shape (B, F, T, C)")
+    if input_stft.shape[-1] < 2:
+        raise ValueError("input_stft must have at least 2 microphone channels")
     if stft_win_length <= 0 or stft_hop_size <= 0:
         raise ValueError("stft_win_length and stft_hop_size must be positive")
 
@@ -31,7 +31,7 @@ def mcwf(
     """Apply a simplified multi-channel Wiener filter in the STFT domain.
 
     Args:
-        input_stft: Complex STFT input with shape (B, F, T, 3).
+        input_stft: Complex STFT input with shape (B, F, T, C).
         stft_win_length: STFT window length (kept for interface parity).
         stft_hop_size: STFT hop size (kept for interface parity).
         noise_pow: Noise power estimate (scalar or broadcastable array).

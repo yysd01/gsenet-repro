@@ -19,7 +19,7 @@ def _windowed_power(input_stft: np.ndarray, window_len: int = 4) -> np.ndarray:
 
 def test_mcwf_shape_and_non_negative():
     rng = np.random.default_rng(0)
-    input_stft = rng.normal(size=(2, 4, 6, 3)) + 1j * rng.normal(size=(2, 4, 6, 3))
+    input_stft = rng.normal(size=(2, 4, 6, 4)) + 1j * rng.normal(size=(2, 4, 6, 4))
     output = mcwf(
         input_stft,
         stft_win_length=320,
@@ -33,7 +33,7 @@ def test_mcwf_shape_and_non_negative():
 
 
 def test_mcwf_gain_changes_with_snr():
-    input_stft = np.ones((1, 2, 5, 3), dtype=np.complex64)
+    input_stft = np.ones((1, 2, 5, 4), dtype=np.complex64)
     low_noise = mcwf(
         input_stft,
         stft_win_length=320,
@@ -54,7 +54,7 @@ def test_mcwf_gain_changes_with_snr():
 
 def test_mcwf_output_tracks_input_power():
     rng = np.random.default_rng(1)
-    input_stft = rng.normal(size=(1, 3, 8, 3)) + 1j * rng.normal(size=(1, 3, 8, 3))
+    input_stft = rng.normal(size=(1, 3, 8, 4)) + 1j * rng.normal(size=(1, 3, 8, 4))
     output = mcwf(
         input_stft,
         stft_win_length=320,

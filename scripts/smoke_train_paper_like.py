@@ -12,9 +12,9 @@ sys.path.append(str(REPO_ROOT))
 
 from gsenet_repro.data.paper_synth import (
     generate_noise_mix,
-    generate_rir_3src_3mic,
+    generate_rir_3src_4mic,
     sample_paper_params,
-    synthesize_y0_y1_y2_yt,
+    synthesize_y0_y1_y2_y3_yt,
 )
 from gsenet_repro.eval.metrics import pesq_proxy, snr_db, stoi_proxy
 
@@ -35,7 +35,7 @@ def _generate_dataset(
         s = rng.normal(size=length).astype(np.float32)
         n, _ = generate_noise_mix(rng, length, fs)
         i, _ = generate_noise_mix(rng, length, fs, noise_types=("speech", "babble", "pink"))
-        rir, rir_anechoic = generate_rir_3src_3mic(rng)
+        rir, rir_anechoic = generate_rir_3src_4mic(rng)
         params = sample_paper_params(rng)
         background_config = {
             "rng": rng,
@@ -43,7 +43,7 @@ def _generate_dataset(
             "snr_db_range": (-4.0, 10.0),
             "noise_types": ("white", "pink", "speech", "babble"),
         }
-        y0, y1, y2, yt = synthesize_y0_y1_y2_yt(
+        y0, y1, y2, _y3, yt = synthesize_y0_y1_y2_y3_yt(
             s, n, i, rir, rir_anechoic, params, background_config=background_config
         )
 

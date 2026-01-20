@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--ckpt_path", type=str, default=None)
     parser.add_argument("--num_batches", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--config", type=str, default=None)
     args, unknown = parser.parse_known_args()
 
     if args.run_dir is None and args.ckpt_path is None:
@@ -80,6 +81,8 @@ def main() -> None:
         "--batch_size",
         str(args.batch_size),
     ]
+    if args.config is not None:
+        argv.extend(["--config", args.config])
     argv.extend(unknown)
     sys.argv = argv
     _eval_module.main()

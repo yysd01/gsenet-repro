@@ -55,7 +55,7 @@ python scripts/smoke_streaming.py
 
 ## MCWFStreamer (frame-wise streaming)
 
-新增 `MCWFStreamer` 实现 3-mic 逐帧流式 MCWF。每推进一个 hop 形成新帧，仅使用当前帧与过去 3 帧的因果窗统计功率（`causal_frames=4`），更新 Wiener 增益并立即输出该帧对应的 `hop_length` 样本。该实现显式维护 `algorithmic_delay_samples`（默认 `win_length - hop_length`），用于对齐离线 MCWF 输出。可运行：
+新增 `MCWFStreamer` 实现 4-mic 逐帧流式 MCWF（支持 `C>=2`）。每推进一个 hop 形成新帧，仅使用当前帧与过去 3 帧的因果窗统计功率（`causal_frames=4`），更新 Wiener 增益并立即输出该帧对应的 `hop_length` 样本。该实现显式维护 `algorithmic_delay_samples`（默认 `win_length - hop_length`），用于对齐离线 MCWF 输出。可运行：
 
 ```bash
 python scripts/smoke_mcwf_streamer.py
@@ -65,7 +65,7 @@ python scripts/smoke_mcwf_streamer.py
 
 ## MCWF Implementation
 
-新增 STFT 域的简化多通道 Wiener 滤波器（MCWF）接口，面向论文中的三麦克风配置。该接口接收三通道复数 STFT 输入 `(B, F, T, 3)`，使用 4 帧因果滑窗统计每个频点的功率谱，并按信号/噪声功率比估计增益，输出与输入形状一致的频域强度谱：
+新增 STFT 域的简化多通道 Wiener 滤波器（MCWF）接口，面向论文中的多麦克风配置。该接口接收复数 STFT 输入 `(B, F, T, C)`（`C>=2`，默认 4 路麦克风），使用 4 帧因果滑窗统计每个频点的功率谱，并按信号/噪声功率比估计增益，输出与输入形状一致的频域强度谱：
 
 ```python
 from gsenet_repro.dsp.mcwf import mcwf
@@ -79,7 +79,7 @@ output = mcwf(
 )
 ```
 
-该接口作为后续深度网络集成的基础模块，方便在三麦克风 STFT 特征上进行滤波预处理与质量对比。
+该接口作为后续深度网络集成的基础模块，方便在多麦克风 STFT 特征上进行滤波预处理与质量对比。
 
 ## Metrics
 
@@ -94,14 +94,14 @@ python -m pip install -r requirements-metrics.txt
 
 ## MCWF + GSENet 模型集成
 
-在 `MinimalGSENet` 中加入 MCWF 预处理层，三麦克风输入会先在 STFT 域估计噪声功率并生成增益，再传入 GSENet 卷积层。示例训练/验证流程如下：
+在 `MinimalGSENet` 中加入 MCWF 预处理层，多麦克风输入会先在 STFT 域估计噪声功率并生成增益，再传入 GSENet 卷积层。示例训练/验证流程如下：
 
 ```bash
 python scripts/make_paper_batch.py
 python scripts/smoke_train_paper_like.py
 ```
 
-`smoke_train_paper_like.py` 会自动生成三麦克风合成数据（包含 RIR、噪声与干扰源），使用 `LOSS_STFT` 参数进行 STFT reconstruction loss，并在训练结束后输出：
+`smoke_train_paper_like.py` 会自动生成四麦克风合成数据（包含 RIR、噪声与干扰源），使用 `LOSS_STFT` 参数进行 STFT reconstruction loss，并在训练结束后输出：
 
 - `initial_loss` / `final_loss` 以确认 loss 持续下降
 - `snr_in` / `snr_out` / `snr_improve` 以确认 MCWF + GSENet 对噪声与干扰的抑制效果
@@ -110,16 +110,35 @@ python scripts/smoke_train_paper_like.py
 
 ## Full training (paper-like)
 
-完整训练/评测/报告入口如下（默认输出在 `artifacts/`）：
+完整训练/评测/报告入口如下（默认输出在 `artifacts/`，支持 `--config` 指定 TOML 配置）：
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-torch.txt
-python scripts/train.py --num_steps 2000
+python scripts/train.py --config configs/paper_like_4mic.toml --num_steps 2000
 python scripts/test.py --run_dir <...>
 python scripts/report_paper_like_full.py --run_dir <...>
 ```
 
-`mcwf_frontend` 使用噪声功率加权平均的简化 MCWF 单通道输出作为训练前端（用于复现训练接口，后续可替换为更真实的 beamformer 实现）。
+`mcwf_frontend` 以“各通道滤波后取均值”的规则将 4 路输出合成为单通道 `y0`（简化 MCWF 前端，便于复现训练接口；后续可替换为更真实的 beamformer 实现）。
+
+## 配置文件（TOML）
+
+训练/评测脚本统一支持 `--config` 读取配置文件（CLI 优先级高于 config，config 高于默认值）。示例：
+
+```bash
+python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 200
+```
+
+训练时会在 `run_dir/config_resolved.json` 保存最终生效配置，便于复现。
+
+## 真实数据集读取（4-mic）
+
+提供 `RealMultichannelDataset` 支持 manifest 读取真实 4-mic 数据。可以通过脚本生成 dummy 数据并验证端到端：
+
+```bash
+python scripts/make_dummy_real_manifest.py
+python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 20
+```
 
 可选绘图依赖：
 
@@ -165,7 +184,7 @@ Table 1 分布（GSENet）：
 python scripts/make_paper_batch.py
 ```
 
-输出 `artifacts/paper_batch.npz`，包含 `y0/y1/y2/yt` 与 `noise_level`，其中的 `s/n/i` 当前为可复现的占位合成信号（正弦混合 + 包络），后续可替换为真实语料。模型前端 STFT 参数与训练 loss 参数继续沿用：
+输出 `artifacts/paper_batch.npz`，包含 `y0/y1/y2/y3/yt` 与 `noise_level`，其中的 `s/n/i` 当前为可复现的占位合成信号（正弦混合 + 包络），后续可替换为真实语料。模型前端 STFT 参数与训练 loss 参数继续沿用：
 
 - `MODEL_STFT`: `n_fft=320, win_length=320, hop_length=160`（16 kHz）
 - `LOSS_STFT`: `n_fft=1024, win_length=1024, hop_length=256`（16 kHz）
@@ -176,7 +195,7 @@ python scripts/make_paper_batch.py
 
 - **噪声类型**：白噪声、粉噪声（1/f）、speech-like 噪声以及 babble（多说话人叠加）通过 `generate_noise_mix` 生成，并可组合成背景噪声。
 - **背景噪声注入**：`synthesize_y0_y1_yt` / `synthesize_y0_y1_y2_yt` 支持 `background_config`，按随机 SNR 将背景噪声叠加到 `y0/y1(/y2)`，使噪声类型对混合公式产生显著影响。
-- **RIR 模拟**：`generate_rir_3src_2mic` / `generate_rir_3src_3mic` 会采样不同的 RT60 与早期反射数量，保证直达路径与多次早期反射，并让尾部衰减符合典型房间特性。
+- **RIR 模拟**：`generate_rir_3src_2mic` / `generate_rir_3src_4mic` 会采样不同的 RT60 与早期反射数量，保证直达路径与多次早期反射，并让尾部衰减符合典型房间特性。
 
 复现扩展数据集流程：
 

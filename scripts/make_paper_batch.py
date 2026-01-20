@@ -11,9 +11,9 @@ sys.path.append(str(REPO_ROOT))
 
 from gsenet_repro.data.paper_synth import (
     generate_noise_mix,
-    generate_rir_3src_3mic,
+    generate_rir_3src_4mic,
     sample_paper_params,
-    synthesize_y0_y1_y2_yt,
+    synthesize_y0_y1_y2_y3_yt,
 )
 
 
@@ -43,6 +43,7 @@ def main() -> None:
     y0_list = []
     y1_list = []
     y2_list = []
+    y3_list = []
     yt_list = []
     meta_list = []
     noise_level_list = []
@@ -52,7 +53,7 @@ def main() -> None:
         n, n_meta = generate_noise_mix(rng, length, fs)
         i, i_meta = generate_noise_mix(rng, length, fs, noise_types=("speech", "babble", "pink"))
 
-        rir, rir_anechoic = generate_rir_3src_3mic(rng)
+        rir, rir_anechoic = generate_rir_3src_4mic(rng)
         params = sample_paper_params(rng, variant="gsenet")
         background_config = {
             "rng": rng,
@@ -61,13 +62,14 @@ def main() -> None:
             "noise_types": ("white", "pink", "speech", "babble"),
             "metadata": [],
         }
-        y0, y1, y2, yt = synthesize_y0_y1_y2_yt(
+        y0, y1, y2, y3, yt = synthesize_y0_y1_y2_y3_yt(
             s, n, i, rir, rir_anechoic, params, background_config=background_config
         )
 
         y0_list.append(y0)
         y1_list.append(y1)
         y2_list.append(y2)
+        y3_list.append(y3)
         yt_list.append(yt)
         background_meta = background_config["metadata"][0] if background_config["metadata"] else {}
         meta = params.as_dict()
@@ -98,6 +100,7 @@ def main() -> None:
         y0=np.stack(y0_list),
         y1=np.stack(y1_list),
         y2=np.stack(y2_list),
+        y3=np.stack(y3_list),
         yt=np.stack(yt_list),
         noise_level=np.array(noise_level_list, dtype=np.float32),
         meta=json.dumps(meta_list),

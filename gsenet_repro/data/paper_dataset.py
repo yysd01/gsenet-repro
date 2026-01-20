@@ -7,9 +7,9 @@ import numpy as np
 
 from gsenet_repro.data.paper_synth import (
     generate_noise_mix,
-    generate_rir_3src_3mic,
+    generate_rir_3src_nmic,
     sample_paper_params,
-    synthesize_y0_y1_y2_yt,
+    synthesize_y_mics_yt,
 )
 from gsenet_repro.dsp import MODEL_STFT
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
@@ -33,6 +33,7 @@ class PaperLikeDataset(IterableDataset):
         num_samples: Optional[int] = None,
         use_mcwf: bool = True,
         ref_mic: int = 0,
+        num_mics: int = 4,
         stft_params: Optional[Dict[str, int]] = None,
         causal_frames: int = 4,
         snr_db_range: tuple[float, float] = (-4.0, 10.0),
@@ -51,6 +52,11 @@ class PaperLikeDataset(IterableDataset):
         self.num_samples = num_samples
         self.use_mcwf = bool(use_mcwf)
         self.ref_mic = int(ref_mic)
+        self.num_mics = int(num_mics)
+        if self.num_mics < 2:
+            raise ValueError("num_mics must be >= 2")
+        if not 0 <= self.ref_mic < self.num_mics:
+            raise ValueError("ref_mic must be in range [0, num_mics)")
         self.stft_params = dict(stft_params) if stft_params is not None else dict(MODEL_STFT)
         self.causal_frames = int(causal_frames)
         self.snr_db_range = snr_db_range
@@ -67,7 +73,7 @@ class PaperLikeDataset(IterableDataset):
         i, _ = generate_noise_mix(
             rng, length, self.sample_rate, noise_types=("speech", "babble", "pink")
         )
-        rir, rir_anechoic = generate_rir_3src_3mic(rng)
+        rir, rir_anechoic = generate_rir_3src_nmic(rng, num_mics=self.num_mics)
         params = sample_paper_params(rng, global_gain=self.global_gain)
         background_config = {
             "rng": rng,
@@ -76,25 +82,34 @@ class PaperLikeDataset(IterableDataset):
             "noise_types": self.noise_types,
         }
         # Keep synthesis aligned with paper_synth.py (Section 2.1/Table 1).
-        y0_mic, y1_mic, y2_mic, yt = synthesize_y0_y1_y2_yt(
-            s, n, i, rir, rir_anechoic, params, background_config=background_config
+        y_mics, yt = synthesize_y_mics_yt(
+            s,
+            n,
+            i,
+            rir,
+            rir_anechoic,
+            params,
+            num_mics=self.num_mics,
+            background_config=background_config,
         )
 
-        x_mics = np.stack([y0_mic, y1_mic, y2_mic], axis=0).astype(np.float32)
+        x_mics = np.stack(list(y_mics), axis=0).astype(np.float32)
         y1 = x_mics[self.ref_mic]
         if self.use_mcwf:
             y0 = mcwf_make_y0(
                 x_mics, stft_params=self.stft_params, causal_frames=self.causal_frames
             )
         else:
-            y0 = x_mics[0]
+            y0 = y1
 
-        y2 = x_mics[2]
+        y2 = x_mics[min(2, self.num_mics - 1)]
+        y3 = x_mics[min(3, self.num_mics - 1)]
 
         return {
             "y0": torch.tensor(y0, dtype=torch.float32),
             "y1": torch.tensor(y1, dtype=torch.float32),
             "y2": torch.tensor(y2, dtype=torch.float32),
+            "y3": torch.tensor(y3, dtype=torch.float32),
             "yt": torch.tensor(yt, dtype=torch.float32),
             "x_mics": torch.tensor(x_mics, dtype=torch.float32),
         }

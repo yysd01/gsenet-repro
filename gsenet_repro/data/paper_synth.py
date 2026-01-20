@@ -271,6 +271,73 @@ def _sample_room_acoustics(rng: np.random.Generator, fs: int) -> Dict[str, float
     }
 
 
+def _sample_direct_offsets(
+    rng: np.random.Generator,
+    num_mics: int,
+    max_direct_delay_diff: int,
+) -> np.ndarray:
+    if num_mics < 2:
+        raise ValueError("num_mics must be >= 2")
+    while True:
+        offsets = rng.integers(-max_direct_delay_diff, max_direct_delay_diff + 1, size=num_mics)
+        if int(np.max(offsets) - np.min(offsets)) <= max_direct_delay_diff:
+            return offsets
+
+
+def generate_rir_3src_nmic(
+    rng: np.random.Generator,
+    num_mics: int,
+    rir_length: int = 1024,
+    fs: int = 16000,
+    max_direct_delay_diff: int = 4,
+    early_reflections: Optional[int] = None,
+    max_early_delay: Optional[int] = None,
+    tail_decay: Optional[float] = None,
+    tail_level: Optional[float] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate lightweight RIRs for 3 sources and close microphones."""
+    room_params = _sample_room_acoustics(rng, fs)
+    early_reflections = early_reflections or int(room_params["early_reflections"])
+    max_early_delay = max_early_delay or int(room_params["max_early_delay"])
+    tail_decay = tail_decay or float(room_params["tail_decay"])
+    tail_level = tail_level or float(room_params["tail_level"])
+
+    rir = np.zeros((3, num_mics, rir_length), dtype=np.float32)
+    direct_delays = np.zeros((3, num_mics), dtype=np.int32)
+
+    for src_idx in range(3):
+        base_delay = int(rng.integers(int(0.004 * fs), int(0.015 * fs)))
+        offsets = _sample_direct_offsets(rng, num_mics=num_mics, max_direct_delay_diff=max_direct_delay_diff)
+        for mic_idx in range(num_mics):
+            delay = max(0, base_delay + int(offsets[mic_idx]))
+            direct_delays[src_idx, mic_idx] = delay
+            rir[src_idx, mic_idx] = _make_rir(
+                rng,
+                length=rir_length,
+                direct_delay=delay,
+                early_reflections=early_reflections,
+                max_early_delay=max_early_delay,
+                tail_decay=tail_decay,
+                tail_level=tail_level,
+            )
+
+    rir = np.stack(
+        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(num_mics)],
+        axis=0,
+    ).reshape(3, num_mics, rir_length)
+
+    max_delay = int(np.max(direct_delays))
+    anechoic_length = max_delay + 1
+    rir_anechoic = np.zeros((3, num_mics, anechoic_length), dtype=np.float32)
+    for src_idx in range(3):
+        for mic_idx in range(num_mics):
+            delay = direct_delays[src_idx, mic_idx]
+            rir_anechoic[src_idx, mic_idx, delay] = 1.0
+            rir_anechoic[src_idx, mic_idx] = normalize_rms(rir_anechoic[src_idx, mic_idx])
+
+    return rir.astype(np.float32), rir_anechoic.astype(np.float32)
+
+
 def generate_rir_3src_2mic(
     rng: np.random.Generator,
     rir_length: int = 1024,
@@ -287,46 +354,17 @@ def generate_rir_3src_2mic(
     The two receivers are placed close enough so their direct-path delay
     difference stays below ``max_direct_delay_diff`` samples.
     """
-    room_params = _sample_room_acoustics(rng, fs)
-    early_reflections = early_reflections or int(room_params["early_reflections"])
-    max_early_delay = max_early_delay or int(room_params["max_early_delay"])
-    tail_decay = tail_decay or float(room_params["tail_decay"])
-    tail_level = tail_level or float(room_params["tail_level"])
-
-    rir = np.zeros((3, 2, rir_length), dtype=np.float32)
-    direct_delays = np.zeros((3, 2), dtype=np.int32)
-
-    for src_idx in range(3):
-        base_delay = int(rng.integers(int(0.004 * fs), int(0.015 * fs)))
-        offsets = [0, int(rng.integers(-max_direct_delay_diff, max_direct_delay_diff + 1))]
-        for mic_idx in range(2):
-            delay = max(0, base_delay + offsets[mic_idx])
-            direct_delays[src_idx, mic_idx] = delay
-            rir[src_idx, mic_idx] = _make_rir(
-                rng,
-                length=rir_length,
-                direct_delay=delay,
-                early_reflections=early_reflections,
-                max_early_delay=max_early_delay,
-                tail_decay=tail_decay,
-                tail_level=tail_level,
-            )
-
-    rir = np.stack(
-        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(2)],
-        axis=0,
-    ).reshape(3, 2, rir_length)
-
-    max_delay = int(np.max(direct_delays))
-    anechoic_length = max_delay + 1
-    rir_anechoic = np.zeros((3, 2, anechoic_length), dtype=np.float32)
-    for src_idx in range(3):
-        for mic_idx in range(2):
-            delay = direct_delays[src_idx, mic_idx]
-            rir_anechoic[src_idx, mic_idx, delay] = 1.0
-            rir_anechoic[src_idx, mic_idx] = normalize_rms(rir_anechoic[src_idx, mic_idx])
-
-    return rir.astype(np.float32), rir_anechoic.astype(np.float32)
+    return generate_rir_3src_nmic(
+        rng,
+        num_mics=2,
+        rir_length=rir_length,
+        fs=fs,
+        max_direct_delay_diff=max_direct_delay_diff,
+        early_reflections=early_reflections,
+        max_early_delay=max_early_delay,
+        tail_decay=tail_decay,
+        tail_level=tail_level,
+    )
 
 
 def generate_rir_3src_3mic(
@@ -340,51 +378,41 @@ def generate_rir_3src_3mic(
     tail_level: Optional[float] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Generate lightweight RIRs for 3 sources and 3 close microphones."""
-    room_params = _sample_room_acoustics(rng, fs)
-    early_reflections = early_reflections or int(room_params["early_reflections"])
-    max_early_delay = max_early_delay or int(room_params["max_early_delay"])
-    tail_decay = tail_decay or float(room_params["tail_decay"])
-    tail_level = tail_level or float(room_params["tail_level"])
+    return generate_rir_3src_nmic(
+        rng,
+        num_mics=3,
+        rir_length=rir_length,
+        fs=fs,
+        max_direct_delay_diff=max_direct_delay_diff,
+        early_reflections=early_reflections,
+        max_early_delay=max_early_delay,
+        tail_decay=tail_decay,
+        tail_level=tail_level,
+    )
 
-    rir = np.zeros((3, 3, rir_length), dtype=np.float32)
-    direct_delays = np.zeros((3, 3), dtype=np.int32)
 
-    for src_idx in range(3):
-        base_delay = int(rng.integers(int(0.004 * fs), int(0.015 * fs)))
-        while True:
-            offsets = rng.integers(
-                -max_direct_delay_diff, max_direct_delay_diff + 1, size=3
-            )
-            if int(np.max(offsets) - np.min(offsets)) <= max_direct_delay_diff:
-                break
-        for mic_idx in range(3):
-            delay = max(0, base_delay + int(offsets[mic_idx]))
-            direct_delays[src_idx, mic_idx] = delay
-            rir[src_idx, mic_idx] = _make_rir(
-                rng,
-                length=rir_length,
-                direct_delay=delay,
-                early_reflections=early_reflections,
-                max_early_delay=max_early_delay,
-                tail_decay=tail_decay,
-                tail_level=tail_level,
-            )
-
-    rir = np.stack(
-        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(3)],
-        axis=0,
-    ).reshape(3, 3, rir_length)
-
-    max_delay = int(np.max(direct_delays))
-    anechoic_length = max_delay + 1
-    rir_anechoic = np.zeros((3, 3, anechoic_length), dtype=np.float32)
-    for src_idx in range(3):
-        for mic_idx in range(3):
-            delay = direct_delays[src_idx, mic_idx]
-            rir_anechoic[src_idx, mic_idx, delay] = 1.0
-            rir_anechoic[src_idx, mic_idx] = normalize_rms(rir_anechoic[src_idx, mic_idx])
-
-    return rir.astype(np.float32), rir_anechoic.astype(np.float32)
+def generate_rir_3src_4mic(
+    rng: np.random.Generator,
+    rir_length: int = 1024,
+    fs: int = 16000,
+    max_direct_delay_diff: int = 4,
+    early_reflections: Optional[int] = None,
+    max_early_delay: Optional[int] = None,
+    tail_decay: Optional[float] = None,
+    tail_level: Optional[float] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Generate lightweight RIRs for 3 sources and 4 close microphones."""
+    return generate_rir_3src_nmic(
+        rng,
+        num_mics=4,
+        rir_length=rir_length,
+        fs=fs,
+        max_direct_delay_diff=max_direct_delay_diff,
+        early_reflections=early_reflections,
+        max_early_delay=max_early_delay,
+        tail_decay=tail_decay,
+        tail_level=tail_level,
+    )
 
 
 def _normalize_params(params: Optional[PaperParams | Dict[str, Any]]) -> PaperParams:
@@ -435,71 +463,17 @@ def synthesize_y0_y1_yt(
     y1 = s * r(0,1) + alpha * gn * n * r(1,1) + beta * pi * gi * i * r(2,1)
     yt = s * r_anechoic(0,0) (anechoic only keeps the strongest path)
     """
-    params = _normalize_params(params)
-
-    s = normalize_rms(np.asarray(s, dtype=np.float32))
-    n = normalize_rms(np.asarray(n, dtype=np.float32))
-    i = normalize_rms(np.asarray(i, dtype=np.float32))
-
-    rir = np.asarray(rir, dtype=np.float32)
-    rir_anechoic = np.asarray(rir_anechoic, dtype=np.float32)
-    if rir.shape[:2] != (3, 2):
-        raise ValueError("rir must have shape (3, 2, L)")
-    if rir_anechoic.shape[:2] != (3, 2):
-        raise ValueError("rir_anechoic must have shape (3, 2, L_anechoic)")
-
-    length = s.shape[0]
-
-    rir_norm = np.stack(
-        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(2)],
-        axis=0,
-    ).reshape(3, 2, -1)
-    rir_anechoic_norm = np.stack(
-        [normalize_rms(rir_anechoic[src, mic]) for src in range(3) for mic in range(2)],
-        axis=0,
-    ).reshape(3, 2, -1)
-
-    y0 = _fftconvolve_truncate(s, rir_norm[0, 0], length)
-    y0 += params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 0], length)
-    y0 += params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 0], length)
-
-    y1 = _fftconvolve_truncate(s, rir_norm[0, 1], length)
-    y1 += params.alpha_lin * params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 1], length)
-    y1 += params.beta_lin * params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 1], length)
-
-    anechoic = rir_anechoic_norm[0, 0]
-    k_star = int(np.argmax(np.abs(anechoic)))
-    h_main = np.zeros_like(anechoic)
-    h_main[k_star] = anechoic[k_star]
-    yt = _fftconvolve_truncate(s, h_main, length)
-
-    if background_config is not None:
-        rng = background_config.get("rng")
-        if rng is None:
-            raise ValueError("background_config requires a numpy Generator as 'rng'")
-        fs = int(background_config.get("fs", 16000))
-        noise_types = background_config.get("noise_types")
-        snr_db_range = background_config.get("snr_db_range", (-2.0, 12.0))
-        y_mics = np.stack([y0, y1], axis=0)
-        noise_mics, noise_meta = generate_background_noise(
-            rng,
-            length=length,
-            fs=fs,
-            num_mics=2,
-            noise_types=noise_types,
-        )
-        snr_db = float(rng.uniform(*snr_db_range))
-        y_mics, _ = add_background_noise(y_mics, noise_mics, snr_db=snr_db)
-        y0, y1 = y_mics[0], y_mics[1]
-        if "metadata" in background_config:
-            background_config["metadata"].append({**noise_meta, "snr_db": snr_db})
-
-    if params.global_gain != 1.0:
-        y0 *= params.global_gain
-        y1 *= params.global_gain
-        yt *= params.global_gain
-
-    return y0.astype(np.float32), y1.astype(np.float32), yt.astype(np.float32)
+    y_mics, yt = synthesize_y_mics_yt(
+        s,
+        n,
+        i,
+        rir,
+        rir_anechoic,
+        params,
+        num_mics=2,
+        background_config=background_config,
+    )
+    return y_mics[0], y_mics[1], yt
 
 
 def synthesize_y0_y1_y2_yt(
@@ -512,7 +486,56 @@ def synthesize_y0_y1_y2_yt(
     background_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Synthesize y0/y1/y2/yt for 3-microphone mixtures."""
+    y_mics, yt = synthesize_y_mics_yt(
+        s,
+        n,
+        i,
+        rir,
+        rir_anechoic,
+        params,
+        num_mics=3,
+        background_config=background_config,
+    )
+    return y_mics[0], y_mics[1], y_mics[2], yt
+
+
+def synthesize_y0_y1_y2_y3_yt(
+    s: np.ndarray,
+    n: np.ndarray,
+    i: np.ndarray,
+    rir: np.ndarray,
+    rir_anechoic: np.ndarray,
+    params: PaperParams | Dict[str, Any],
+    background_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Synthesize y0/y1/y2/y3/yt for 4-microphone mixtures."""
+    y_mics, yt = synthesize_y_mics_yt(
+        s,
+        n,
+        i,
+        rir,
+        rir_anechoic,
+        params,
+        num_mics=4,
+        background_config=background_config,
+    )
+    return y_mics[0], y_mics[1], y_mics[2], y_mics[3], yt
+
+
+def synthesize_y_mics_yt(
+    s: np.ndarray,
+    n: np.ndarray,
+    i: np.ndarray,
+    rir: np.ndarray,
+    rir_anechoic: np.ndarray,
+    params: PaperParams | Dict[str, Any],
+    num_mics: int,
+    background_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Synthesize multichannel mixtures and target for an arbitrary mic count."""
     params = _normalize_params(params)
+    if num_mics < 2:
+        raise ValueError("num_mics must be >= 2")
 
     s = normalize_rms(np.asarray(s, dtype=np.float32))
     n = normalize_rms(np.asarray(n, dtype=np.float32))
@@ -520,33 +543,34 @@ def synthesize_y0_y1_y2_yt(
 
     rir = np.asarray(rir, dtype=np.float32)
     rir_anechoic = np.asarray(rir_anechoic, dtype=np.float32)
-    if rir.shape[:2] != (3, 3):
-        raise ValueError("rir must have shape (3, 3, L)")
-    if rir_anechoic.shape[:2] != (3, 3):
-        raise ValueError("rir_anechoic must have shape (3, 3, L_anechoic)")
+    if rir.shape[:2] != (3, num_mics):
+        raise ValueError(f"rir must have shape (3, {num_mics}, L)")
+    if rir_anechoic.shape[:2] != (3, num_mics):
+        raise ValueError(f"rir_anechoic must have shape (3, {num_mics}, L_anechoic)")
 
     length = s.shape[0]
 
     rir_norm = np.stack(
-        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(3)],
+        [normalize_rms(rir[src, mic]) for src in range(3) for mic in range(num_mics)],
         axis=0,
-    ).reshape(3, 3, -1)
+    ).reshape(3, num_mics, -1)
     rir_anechoic_norm = np.stack(
-        [normalize_rms(rir_anechoic[src, mic]) for src in range(3) for mic in range(3)],
+        [normalize_rms(rir_anechoic[src, mic]) for src in range(3) for mic in range(num_mics)],
         axis=0,
-    ).reshape(3, 3, -1)
+    ).reshape(3, num_mics, -1)
 
-    y0 = _fftconvolve_truncate(s, rir_norm[0, 0], length)
-    y0 += params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 0], length)
-    y0 += params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 0], length)
-
-    y1 = _fftconvolve_truncate(s, rir_norm[0, 1], length)
-    y1 += params.alpha_lin * params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 1], length)
-    y1 += params.beta_lin * params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 1], length)
-
-    y2 = _fftconvolve_truncate(s, rir_norm[0, 2], length)
-    y2 += params.alpha_lin * params.gn_lin * _fftconvolve_truncate(n, rir_norm[1, 2], length)
-    y2 += params.beta_lin * params.pi * params.gi_lin * _fftconvolve_truncate(i, rir_norm[2, 2], length)
+    y_mics = np.zeros((num_mics, length), dtype=np.float32)
+    for mic_idx in range(num_mics):
+        noise_scale = params.gn_lin if mic_idx == 0 else params.alpha_lin * params.gn_lin
+        interf_scale = (
+            params.pi * params.gi_lin
+            if mic_idx == 0
+            else params.beta_lin * params.pi * params.gi_lin
+        )
+        y = _fftconvolve_truncate(s, rir_norm[0, mic_idx], length)
+        y += noise_scale * _fftconvolve_truncate(n, rir_norm[1, mic_idx], length)
+        y += interf_scale * _fftconvolve_truncate(i, rir_norm[2, mic_idx], length)
+        y_mics[mic_idx] = y
 
     anechoic = rir_anechoic_norm[0, 0]
     k_star = int(np.argmax(np.abs(anechoic)))
@@ -561,29 +585,20 @@ def synthesize_y0_y1_y2_yt(
         fs = int(background_config.get("fs", 16000))
         noise_types = background_config.get("noise_types")
         snr_db_range = background_config.get("snr_db_range", (-2.0, 12.0))
-        y_mics = np.stack([y0, y1, y2], axis=0)
         noise_mics, noise_meta = generate_background_noise(
             rng,
             length=length,
             fs=fs,
-            num_mics=3,
+            num_mics=num_mics,
             noise_types=noise_types,
         )
         snr_db = float(rng.uniform(*snr_db_range))
         y_mics, _ = add_background_noise(y_mics, noise_mics, snr_db=snr_db)
-        y0, y1, y2 = y_mics[0], y_mics[1], y_mics[2]
         if "metadata" in background_config:
             background_config["metadata"].append({**noise_meta, "snr_db": snr_db})
 
     if params.global_gain != 1.0:
-        y0 *= params.global_gain
-        y1 *= params.global_gain
-        y2 *= params.global_gain
+        y_mics *= params.global_gain
         yt *= params.global_gain
 
-    return (
-        y0.astype(np.float32),
-        y1.astype(np.float32),
-        y2.astype(np.float32),
-        yt.astype(np.float32),
-    )
+    return y_mics.astype(np.float32), yt.astype(np.float32)
