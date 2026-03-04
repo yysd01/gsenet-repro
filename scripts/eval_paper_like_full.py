@@ -64,6 +64,7 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
             stft_params=config["stft_model"],
             causal_frames=data_config["mcwf_causal_frames"],
             seed=seed,
+            mic_positions=data_config.get("mic_positions"),
         )
     if data_config["mode"] == "real_dir":
         return RealFourMicDirDataset(
@@ -92,6 +93,7 @@ def _make_dataset(config: dict, num_samples: int, seed: int) -> torch.utils.data
         num_mics=data_config["num_mics"],
         stft_params=config["stft_model"],
         causal_frames=data_config["mcwf_causal_frames"],
+        mic_positions=data_config.get("mic_positions"),
     )
 
 
@@ -266,6 +268,9 @@ def main() -> None:
                         x_mics,
                         stft_params=config["stft_model"],
                         causal_frames=config["data"]["mcwf_causal_frames"],
+                        ref_ch=int(config["data"]["ref_mic_index"]),
+                        sample_rate=int(config["data"]["sample_rate"]),
+                        mic_positions=config["data"].get("mic_positions"),
                     )
                 else:
                     y0 = y1

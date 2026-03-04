@@ -132,6 +132,8 @@ python scripts/report_paper_like_full.py --run_dir <...>
 
 `mcwf_frontend`（保留历史命名）默认已切换为 4 麦频域 MVDR 前端：在 STFT 域估计干扰协方差 `R_nn`、RTF 导向向量 `d(f)`，输出单通道 beamformed `y0`。Gate 使用 VAD + GCC-PHAT 的“前方±60°一致性”判定。
 
+可选数据配置项：`data.mic_positions`（单位米，形状为 `[[x,y,z], ...]`），用于 gate 的 GCC 几何约束；未提供时回退到内置 4 麦示例几何。`mcwf_make_y0` 会使用 `data.sample_rate` 进行时延上限换算，避免固定 16k 带来的门控误判。
+
 快速查看论文规模模型的参数量与 STFT 配置：
 
 ```bash

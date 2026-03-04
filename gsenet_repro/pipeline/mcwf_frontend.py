@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import Dict, Iterable
+from typing import Dict
 
 import numpy as np
 
@@ -13,6 +13,12 @@ if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     import torch
 else:  # pragma: no cover
     torch = None
+
+
+DEFAULT_MIC_POSITIONS = np.array(
+    [[0.00, 0.00, 0.00], [0.04, 0.00, 0.00], [0.01, 0.035, 0.00], [-0.03, 0.01, 0.00]],
+    dtype=np.float32,
+)
 
 
 def _frame_signal(x: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
@@ -37,12 +43,32 @@ def _gcc_phat_tau(frame_a: np.ndarray, frame_b: np.ndarray, fs: int) -> float:
     return float(shift / fs)
 
 
+def gates_from_probs(
+    p_speech: np.ndarray,
+    p_tar: np.ndarray,
+    theta_s: float,
+    theta_t: float,
+    theta_i: float,
+    theta_n: float,
+    beta_speech_interf: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    target_gate = ((p_speech > theta_s) & (p_tar > theta_t)).astype(np.float32)
+    is_noise = ((p_tar < theta_i) | (p_speech < theta_n)).astype(np.float32)
+    noise_beta = np.where(
+        target_gate > 0.5,
+        0.0,
+        np.where(is_noise > 0.5, 1.0, beta_speech_interf),
+    ).astype(np.float32)
+    return target_gate, noise_beta
+
+
 def _estimate_gates(
     x_mics: np.ndarray,
     sample_rate: int,
     hop_length: int,
     win_length: int,
     mic_positions: np.ndarray,
+    ref_ch: int,
     *,
     theta_s: float = 0.6,
     theta_t: float = 0.6,
@@ -50,7 +76,9 @@ def _estimate_gates(
     theta_n: float = 0.3,
     beta_speech_interf: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray]:
-    ref = x_mics[1 if x_mics.shape[0] > 1 else 0]
+    channels = x_mics.shape[0]
+    ref_ch = int(np.clip(ref_ch, 0, channels - 1))
+    ref = x_mics[ref_ch]
     frames = _frame_signal(ref, win_length, hop_length)
     energy = np.mean(frames**2, axis=1)
     energy = (energy - np.min(energy)) / (np.ptp(energy) + 1e-8)
@@ -59,7 +87,7 @@ def _estimate_gates(
     sfm = np.exp(np.mean(np.log(spec), axis=1)) / np.mean(spec, axis=1)
     p_speech = np.clip(0.7 * energy + 0.3 * (1.0 - sfm), 0.0, 1.0)
 
-    pairs = [(0, 1), (0, 2), (1, 3)] if x_mics.shape[0] >= 4 else [(0, 1)]
+    pairs = [(0, 1), (0, 2), (1, 3)] if channels >= 4 else [(0, 1)]
     votes = np.zeros(frames.shape[0], dtype=np.float32)
     sin60 = np.sin(np.deg2rad(60.0))
     c = 343.0
@@ -72,13 +100,15 @@ def _estimate_gates(
             tau = abs(_gcc_phat_tau(fi[t], fj[t], sample_rate))
             votes[t] += 1.0 if tau <= tau_lim else 0.0
     p_tar = votes / float(len(pairs))
-
-    target_gate = ((p_speech > theta_s) & (p_tar > theta_t)).astype(np.float32)
-    is_noise = ((p_tar < theta_i) | (p_speech < theta_n)).astype(np.float32)
-    noise_beta = np.where(is_noise > 0.5, 1.0, beta_speech_interf).astype(np.float32)
-    return target_gate, noise_beta
-
-
+    return gates_from_probs(
+        p_speech,
+        p_tar,
+        theta_s=theta_s,
+        theta_t=theta_t,
+        theta_i=theta_i,
+        theta_n=theta_n,
+        beta_speech_interf=beta_speech_interf,
+    )
 
 
 def _match_frames(g: np.ndarray, frames: int) -> np.ndarray:
@@ -90,12 +120,15 @@ def _match_frames(g: np.ndarray, frames: int) -> np.ndarray:
         return np.ones(frames, dtype=np.float32)
     return np.pad(g, (0, frames - g.shape[0]), mode="edge").astype(np.float32)
 
+
 def mcwf_make_y0(
     x_mics: np.ndarray | "torch.Tensor",
     stft_params: Dict[str, int] | None,
     causal_frames: int = 4,
     ref_ch: int = 1,
     diag_load: float = 1e-2,
+    sample_rate: int | None = None,
+    mic_positions: np.ndarray | None = None,
 ) -> np.ndarray | "torch.Tensor":
     """Generate y0 with 4-mic frequency-domain MVDR beamforming (legacy API name)."""
     del causal_frames
@@ -111,14 +144,16 @@ def mcwf_make_y0(
     n_fft = int(params["n_fft"])
     win_length = int(params["win_length"])
     hop_length = int(params["hop_length"])
+    sample_rate = 16000 if sample_rate is None else int(sample_rate)
 
-    # An irregular 4-mic phone-like geometry (meters), used for GCC gate bounds.
-    mic_positions = np.array(
-        [[0.00, 0.00, 0.00], [0.04, 0.00, 0.00], [0.01, 0.035, 0.00], [-0.03, 0.01, 0.00]],
-        dtype=np.float32,
-    )
+    positions = DEFAULT_MIC_POSITIONS if mic_positions is None else np.asarray(mic_positions, dtype=np.float32)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError("mic_positions must have shape (C, 3) or (>=C, 3)")
 
     batch, channels, length = x_np.shape
+    if positions.shape[0] < channels:
+        raise ValueError("mic_positions must provide at least one row per channel")
+
     y0_list = []
     for b in range(batch):
         mic_stfts = [
@@ -134,10 +169,11 @@ def mcwf_make_y0(
         X_np = np.stack(mic_stfts, axis=-1)  # (F,T,C)
         target_gate, noise_gate = _estimate_gates(
             x_np[b],
-            sample_rate=16000,
+            sample_rate=sample_rate,
             hop_length=hop_length,
             win_length=win_length,
-            mic_positions=mic_positions[:channels],
+            mic_positions=positions[:channels],
+            ref_ch=ref_ch,
         )
         target_gate = _match_frames(target_gate, X_np.shape[1])
         noise_gate = _match_frames(noise_gate, X_np.shape[1])
