@@ -456,6 +456,7 @@ def synthesize_y0_y1_yt(
     rir_anechoic: np.ndarray,
     params: PaperParams | Dict[str, Any],
     background_config: Optional[Dict[str, Any]] = None,
+    target_mic: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Synthesize y0/y1/yt as defined in Section 2.1 of the paper.
 
@@ -472,6 +473,7 @@ def synthesize_y0_y1_yt(
         params,
         num_mics=2,
         background_config=background_config,
+        target_mic=target_mic,
     )
     return y_mics[0], y_mics[1], yt
 
@@ -484,6 +486,7 @@ def synthesize_y0_y1_y2_yt(
     rir_anechoic: np.ndarray,
     params: PaperParams | Dict[str, Any],
     background_config: Optional[Dict[str, Any]] = None,
+    target_mic: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Synthesize y0/y1/y2/yt for 3-microphone mixtures."""
     y_mics, yt = synthesize_y_mics_yt(
@@ -495,6 +498,7 @@ def synthesize_y0_y1_y2_yt(
         params,
         num_mics=3,
         background_config=background_config,
+        target_mic=target_mic,
     )
     return y_mics[0], y_mics[1], y_mics[2], yt
 
@@ -507,6 +511,7 @@ def synthesize_y0_y1_y2_y3_yt(
     rir_anechoic: np.ndarray,
     params: PaperParams | Dict[str, Any],
     background_config: Optional[Dict[str, Any]] = None,
+    target_mic: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Synthesize y0/y1/y2/y3/yt for 4-microphone mixtures."""
     y_mics, yt = synthesize_y_mics_yt(
@@ -518,6 +523,7 @@ def synthesize_y0_y1_y2_y3_yt(
         params,
         num_mics=4,
         background_config=background_config,
+        target_mic=target_mic,
     )
     return y_mics[0], y_mics[1], y_mics[2], y_mics[3], yt
 
@@ -531,6 +537,7 @@ def synthesize_y_mics_yt(
     params: PaperParams | Dict[str, Any],
     num_mics: int,
     background_config: Optional[Dict[str, Any]] = None,
+    target_mic: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Synthesize multichannel mixtures and target for an arbitrary mic count."""
     params = _normalize_params(params)
@@ -572,7 +579,8 @@ def synthesize_y_mics_yt(
         y += interf_scale * _fftconvolve_truncate(i, rir_norm[2, mic_idx], length)
         y_mics[mic_idx] = y
 
-    anechoic = rir_anechoic_norm[0, 0]
+    target_mic = int(np.clip(target_mic, 0, num_mics - 1))
+    anechoic = rir_anechoic_norm[0, target_mic]
     k_star = int(np.argmax(np.abs(anechoic)))
     h_main = np.zeros_like(anechoic)
     h_main[k_star] = anechoic[k_star]

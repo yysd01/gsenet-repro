@@ -17,6 +17,7 @@ from gsenet_repro.data.paper_synth import (
     synthesize_y0_y1_y2_y3_yt,
 )
 from gsenet_repro.eval.metrics import pesq_proxy, snr_db, stoi_proxy
+from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
 
 def _generate_dataset(
@@ -43,9 +44,11 @@ def _generate_dataset(
             "snr_db_range": (-4.0, 10.0),
             "noise_types": ("white", "pink", "speech", "babble"),
         }
-        y0, y1, y2, _y3, yt = synthesize_y0_y1_y2_y3_yt(
-            s, n, i, rir, rir_anechoic, params, background_config=background_config
+        _y0, y1, y2, _y3, yt = synthesize_y0_y1_y2_y3_yt(
+            s, n, i, rir, rir_anechoic, params, background_config=background_config, target_mic=1
         )
+        y_mics = np.stack([_y0, y1, y2, _y3], axis=0).astype(np.float32)
+        y0 = mcwf_make_y0(y_mics, stft_params={"n_fft": 320, "win_length": 320, "hop_length": 160}, ref_ch=1)
 
         y0_list.append(y0)
         y1_list.append(y1)
