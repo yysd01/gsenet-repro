@@ -34,3 +34,13 @@ def test_apply_beamformer_shape() -> None:
     Y = apply_beamformer(w, X)
     assert Y.shape == X.shape[:2]
     assert np.isfinite(Y.real).all()
+
+
+def test_rnn_smoothing_is_decay() -> None:
+    X = _make_x(F=8, T=1, C=4, seed=1)
+    gate = np.ones(1, dtype=np.float32)
+    R = estimate_rnn(X, gate, smoothing=0.96)
+    xxh = X[:, 0, :][:, :, None] * np.conjugate(X[:, 0, :][:, None, :])
+    I = np.tile(np.eye(X.shape[-1], dtype=np.complex64)[None, :, :], (X.shape[0], 1, 1))
+    rel = np.linalg.norm(R - I) / (np.linalg.norm(xxh - I) + 1e-8)
+    assert rel < 0.2

@@ -128,6 +128,7 @@ class RealMultichannelDataset(Dataset):
         stft_params: Optional[Dict[str, int]] = None,
         causal_frames: int = 4,
         seed: int = 0,
+        mic_positions: list[list[float]] | None = None,
     ) -> None:
         self.sample_rate = int(sample_rate)
         self.segment_seconds = float(segment_seconds)
@@ -142,6 +143,7 @@ class RealMultichannelDataset(Dataset):
         self.stft_params = dict(stft_params) if stft_params is not None else dict(MODEL_STFT)
         self.causal_frames = int(causal_frames)
         self.seed = int(seed)
+        self.mic_positions = mic_positions
 
         manifest = Path(manifest_path) if manifest_path else None
         root = Path(root_dir) if root_dir else None
@@ -168,7 +170,14 @@ class RealMultichannelDataset(Dataset):
         x_mics = np.stack(mic_slices, axis=0).astype(np.float32)
         y1 = x_mics[self.ref_mic_index]
         if self.use_mcwf:
-            y0 = mcwf_make_y0(x_mics, stft_params=self.stft_params, causal_frames=self.causal_frames)
+            y0 = mcwf_make_y0(
+                x_mics,
+                stft_params=self.stft_params,
+                causal_frames=self.causal_frames,
+                ref_ch=self.ref_mic_index,
+                sample_rate=self.sample_rate,
+                mic_positions=self.mic_positions,
+            )
         else:
             y0 = y1
         y2 = x_mics[min(2, self.num_mics - 1)]

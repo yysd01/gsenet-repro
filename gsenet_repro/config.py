@@ -37,6 +37,7 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "cache_metadata": True,
         "use_mcwf": 1,
         "mcwf_causal_frames": 4,
+        "mic_positions": None,
     },
     "stft_model": {
         "n_fft": 320,

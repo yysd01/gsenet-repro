@@ -39,6 +39,7 @@ class PaperLikeDataset(IterableDataset):
         snr_db_range: tuple[float, float] = (-4.0, 10.0),
         noise_types: tuple[str, ...] = ("white", "pink", "speech", "babble"),
         global_gain: float = 1.0,
+        mic_positions: list[list[float]] | None = None,
     ) -> None:
         if torch is None:
             raise ImportError(
@@ -62,6 +63,7 @@ class PaperLikeDataset(IterableDataset):
         self.snr_db_range = snr_db_range
         self.noise_types = noise_types
         self.global_gain = float(global_gain)
+        self.mic_positions = mic_positions
 
     def _make_rng(self, worker_id: int) -> np.random.Generator:
         return np.random.default_rng(self.seed + worker_id)
@@ -102,6 +104,8 @@ class PaperLikeDataset(IterableDataset):
                 stft_params=self.stft_params,
                 causal_frames=self.causal_frames,
                 ref_ch=self.ref_mic,
+                sample_rate=self.sample_rate,
+                mic_positions=self.mic_positions,
             )
         else:
             y0 = y1

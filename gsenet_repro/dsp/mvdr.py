@@ -23,6 +23,11 @@ def estimate_rnn(
     mask_or_gate: np.ndarray,
     smoothing: float = 0.96,
 ) -> np.ndarray:
+    """Estimate noise covariance with EMA.
+
+    `smoothing` follows a decay/retention meaning: larger values keep more
+    history (e.g. 0.96 keeps ~96% of the previous covariance per gated frame).
+    """
     if X.ndim != 3:
         raise ValueError("X must have shape (F,T,C)")
     F, T, C = X.shape
@@ -34,7 +39,7 @@ def estimate_rnn(
     for t in range(T):
         x = X[:, t, :]
         xxh = x[:, :, None] * np.conjugate(x[:, None, :])
-        alpha = float(smoothing * gate[t])
+        alpha = float((1.0 - smoothing) * gate[t])
         R = (1.0 - alpha) * R + alpha * xxh
         R = _hermitian(R)
     return R

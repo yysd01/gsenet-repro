@@ -156,6 +156,7 @@ def _make_eval_batch(
             stft_params=stft_params,
             causal_frames=data_config["mcwf_causal_frames"],
             seed=seed,
+            mic_positions=data_config.get("mic_positions"),
         )
     elif data_config["mode"] == "real_dir":
         dataset = RealFourMicDirDataset(
@@ -186,6 +187,7 @@ def _make_eval_batch(
             num_mics=data_config["num_mics"],
             stft_params=stft_params,
             causal_frames=data_config["mcwf_causal_frames"],
+            mic_positions=data_config.get("mic_positions"),
         )
     loader = DataLoader(dataset, batch_size=batch_size)
     return next(iter(loader)), dataset
@@ -223,7 +225,14 @@ def _prepare_batch_for_model(
     y1 = batch["y1"]
     yt = batch["yt"]
     if bool(data_config["use_mcwf"]):
-        y0 = mcwf_make_y0(x_mics, stft_params=stft_params, causal_frames=data_config["mcwf_causal_frames"])
+        y0 = mcwf_make_y0(
+            x_mics,
+            stft_params=stft_params,
+            causal_frames=data_config["mcwf_causal_frames"],
+            ref_ch=int(data_config["ref_mic_index"]),
+            sample_rate=int(data_config["sample_rate"]),
+            mic_positions=data_config.get("mic_positions"),
+        )
     else:
         y0 = y1
     mic_index = min(2, x_mics.shape[1] - 1)
@@ -355,6 +364,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             stft_params=model_stft,
             causal_frames=data_config["mcwf_causal_frames"],
             seed=run_config["seed"],
+            mic_positions=data_config.get("mic_positions"),
         )
     elif data_config["mode"] == "real_dir":
         dataset = RealFourMicDirDataset(
@@ -385,6 +395,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             num_mics=data_config["num_mics"],
             stft_params=model_stft,
             causal_frames=data_config["mcwf_causal_frames"],
+            mic_positions=data_config.get("mic_positions"),
         )
 
     loader = _make_dataloader(
