@@ -32,7 +32,7 @@ class PaperLikeDataset(IterableDataset):
         seed: int = 0,
         num_samples: Optional[int] = None,
         use_mcwf: bool = True,
-        ref_mic: int = 0,
+        ref_mic: int = 1,
         num_mics: int = 4,
         stft_params: Optional[Dict[str, int]] = None,
         causal_frames: int = 4,
@@ -50,7 +50,7 @@ class PaperLikeDataset(IterableDataset):
         self.length = int(round(self.sample_rate * self.segment_seconds))
         self.seed = int(seed)
         self.num_samples = num_samples
-        self.use_mcwf = bool(use_mcwf)
+        self.use_mcwf = bool(use_mcwf)  # legacy flag; now selects MVDR frontend
         self.ref_mic = int(ref_mic)
         self.num_mics = int(num_mics)
         if self.num_mics < 2:
@@ -91,13 +91,17 @@ class PaperLikeDataset(IterableDataset):
             params,
             num_mics=self.num_mics,
             background_config=background_config,
+            target_mic=self.ref_mic,
         )
 
         x_mics = np.stack(list(y_mics), axis=0).astype(np.float32)
         y1 = x_mics[self.ref_mic]
         if self.use_mcwf:
             y0 = mcwf_make_y0(
-                x_mics, stft_params=self.stft_params, causal_frames=self.causal_frames
+                x_mics,
+                stft_params=self.stft_params,
+                causal_frames=self.causal_frames,
+                ref_ch=self.ref_mic,
             )
         else:
             y0 = y1

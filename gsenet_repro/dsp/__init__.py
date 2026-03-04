@@ -2,6 +2,7 @@
 import importlib.util
 
 from .mcwf import mcwf
+from .mvdr import apply_beamformer, estimate_rnn, estimate_rtf, mvdr_weights
 from .stft import LOSS_STFT, MODEL_STFT, istft, stft
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
@@ -18,6 +19,10 @@ __all__ = [
     "MODEL_STFT",
     "mcwf",
     "stft",
+    "estimate_rnn",
+    "estimate_rtf",
+    "mvdr_weights",
+    "apply_beamformer",
     "istft",
     "torch_stft",
     "torch_istft",

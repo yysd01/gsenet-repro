@@ -8,8 +8,8 @@ mode = "paper_like"
 sample_rate = 16000
 segment_seconds = 1.0
 num_mics = 4
-ref_mic_index = 0
-use_mcwf = 1
+ref_mic_index = 1
+use_mcwf = 1 # legacy key: now MVDR front-end
 mcwf_causal_frames = 4
 
 [stft_model]

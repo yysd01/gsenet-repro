@@ -130,7 +130,7 @@ python scripts/test.py --run_dir <...>
 python scripts/report_paper_like_full.py --run_dir <...>
 ```
 
-`mcwf_frontend` 以“各通道滤波后取均值”的规则将 4 路输出合成为单通道 `y0`（简化 MCWF 前端，便于复现训练接口；后续可替换为更真实的 beamformer 实现）。
+`mcwf_frontend`（保留历史命名）默认已切换为 4 麦频域 MVDR 前端：在 STFT 域估计干扰协方差 `R_nn`、RTF 导向向量 `d(f)`，输出单通道 beamformed `y0`。Gate 使用 VAD + GCC-PHAT 的“前方±60°一致性”判定。
 
 快速查看论文规模模型的参数量与 STFT 配置：
 
@@ -211,7 +211,7 @@ python scripts/make_dummy_batch.py
 
 输出 `artifacts/dummy_batch.npz`，包含字段：`y0`、`y1`、`yt`、`meta`（JSON 字符串，记录采样到的增益与参数）。
 
-合成方式对齐 GSENet 论文 Table 1 / Section 2.1：`y0` 与 `y1` 分别是两个麦克风的混合信号，`yt` 是用 anechoic RIR 的主径（最大 tap）构造的去混响目标；其中 `gn/gi/alpha/beta/pi` 的采样分布与论文一致，并先在 dB 域采样后再转为幅度比例。
+合成方式对齐 GSENet 论文 Table 1 / Section 2.1：`y0/y1` 为多麦混合输入，其中训练默认 `y1` 为参考通道（`ref_mic_index=1`），`yt` 与参考通道语义对齐（anechoic `rir_anechoic[0, ref_mic]` 的主径）；其中 `gn/gi/alpha/beta/pi` 的采样分布与论文一致，并先在 dB 域采样后再转为幅度比例。
 
 ## Paper-like synthesis (Section 2.1)
 

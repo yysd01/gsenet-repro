@@ -6,7 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib
 
 
 DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
@@ -20,7 +23,7 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "sample_rate": 16000,
         "segment_seconds": 1.0,
         "num_mics": 4,
-        "ref_mic_index": 0,
+        "ref_mic_index": 1,
         "clean_ref_mic_index": 0,
         "clean_is_multichannel": True,
         "manifest_path": None,

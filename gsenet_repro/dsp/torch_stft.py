@@ -13,11 +13,8 @@ def _make_window(
     center: bool,
     eps: float = 1e-4,
 ) -> torch.Tensor:
-    window = torch.hann_window(win_length, periodic=True, device=device, dtype=dtype)
-    if not center and win_length > 0:
-        window[0] = window.new_tensor(eps)
-        window[-1] = torch.maximum(window[-1], window.new_tensor(eps))
-    return window
+    del center, eps
+    return torch.hann_window(win_length, periodic=True, device=device, dtype=dtype)
 
 
 def stft(
@@ -28,20 +25,6 @@ def stft(
     window: str = "hann",
     center: bool = False,
 ) -> torch.Tensor:
-    """Compute torch STFT.
-
-    Args:
-        x: Waveform tensor of shape (T,) or (B, T).
-        n_fft: FFT size.
-        win_length: Window length.
-        hop_length: Hop length.
-        window: Window type, only "hann" is supported.
-        center: If True, pad by win_length // 2 before STFT.
-
-    Returns:
-        Complex STFT of shape (n_fft // 2 + 1, frames) for 1D input or
-        (B, n_fft // 2 + 1, frames) for batched input.
-    """
     if x.ndim not in (1, 2):
         raise ValueError("stft expects a 1D or 2D tensor")
     if window != "hann":
@@ -50,13 +33,9 @@ def stft(
         complex_dtype = torch.complex64 if x.dtype == torch.float32 else torch.complex128
         if x.ndim == 1:
             return torch.zeros((n_fft // 2 + 1, 0), dtype=complex_dtype, device=x.device)
-        return torch.zeros(
-            (x.shape[0], n_fft // 2 + 1, 0), dtype=complex_dtype, device=x.device
-        )
+        return torch.zeros((x.shape[0], n_fft // 2 + 1, 0), dtype=complex_dtype, device=x.device)
 
-    window_tensor = _make_window(
-        win_length, device=x.device, dtype=x.dtype, center=center
-    )
+    window_tensor = _make_window(win_length, device=x.device, dtype=x.dtype, center=center)
     return torch.stft(
         x,
         n_fft=n_fft,
@@ -68,6 +47,42 @@ def stft(
     )
 
 
+def _istft_center_false_manual(
+    X: torch.Tensor,
+    n_fft: int,
+    win_length: int,
+    hop_length: int,
+    window_tensor: torch.Tensor,
+    length: Optional[int],
+) -> torch.Tensor:
+    squeeze = X.ndim == 2
+    if squeeze:
+        X = X.unsqueeze(0)
+    B, F, T = X.shape
+    if F != n_fft // 2 + 1:
+        raise ValueError("STFT frequency dimension mismatch")
+
+    frames = torch.fft.irfft(X, n=n_fft, dim=1)[:, :win_length, :]  # (B, win, T)
+    frames = frames * window_tensor.view(1, win_length, 1)
+    out_len = win_length + hop_length * max(T - 1, 0)
+    y = torch.zeros((B, out_len), dtype=X.real.dtype, device=X.device)
+    norm = torch.zeros((out_len,), dtype=X.real.dtype, device=X.device)
+
+    w2 = window_tensor.square()
+    for t in range(T):
+        start = t * hop_length
+        end = start + win_length
+        y[:, start:end] += frames[:, :, t]
+        norm[start:end] += w2
+
+    y = y / norm.clamp_min(1e-8).unsqueeze(0)
+    if length is not None:
+        if y.shape[-1] < length:
+            y = torch.nn.functional.pad(y, (0, length - y.shape[-1]))
+        y = y[..., :length]
+    return y.squeeze(0) if squeeze else y
+
+
 def istft(
     X: torch.Tensor,
     n_fft: int,
@@ -77,21 +92,6 @@ def istft(
     length: Optional[int] = None,
     center: bool = False,
 ) -> torch.Tensor:
-    """Inverse torch STFT.
-
-    Args:
-        X: Complex STFT of shape (n_fft // 2 + 1, frames) or
-            (B, n_fft // 2 + 1, frames).
-        n_fft: FFT size.
-        win_length: Window length.
-        hop_length: Hop length.
-        window: Window type, only "hann" is supported.
-        length: Optional output length after trimming.
-        center: If True, remove win_length // 2 samples from both ends.
-
-    Returns:
-        Time-domain reconstruction of shape (T,) or (B, T).
-    """
     if X.ndim not in (2, 3):
         raise ValueError("istft expects a 2D or 3D complex STFT tensor")
     if window != "hann":
@@ -105,16 +105,16 @@ def istft(
             return torch.zeros((batch, 0), dtype=X.real.dtype, device=X.device)
         return torch.zeros((batch, length), dtype=X.real.dtype, device=X.device)
 
-    window_tensor = _make_window(
-        win_length, device=X.device, dtype=X.real.dtype, center=center
-    )
+    window_tensor = _make_window(win_length, device=X.device, dtype=X.real.dtype, center=center)
+    if not center:
+        return _istft_center_false_manual(X, n_fft, win_length, hop_length, window_tensor, length)
     return torch.istft(
         X,
         n_fft=n_fft,
         hop_length=hop_length,
         win_length=win_length,
         window=window_tensor,
-        center=center,
+        center=True,
         length=length,
     )
 
