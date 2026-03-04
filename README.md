@@ -119,6 +119,51 @@ python scripts/smoke_train_paper_like.py
 
 可通过 `noise_level` 参数控制 MCWF 的增益（噪声越大，增益越低），用于在训练中自适应噪声强度。
 
+## 统一入口（推荐）
+
+为避免 `scripts/` 下入口过多导致使用困惑，推荐统一使用：
+
+```bash
+python scripts/run.py <subcommand> ...
+```
+
+支持的子命令：
+
+- `stft`：运行 STFT roundtrip 烟雾测试（底层脚本 `scripts/smoke_stft.py`）。
+- `mvdr`：运行 MVDR 烟雾测试（底层脚本 `scripts/smoke_mvdr.py`）。
+- `train`：运行训练入口（底层脚本 `scripts/train.py`）。
+- `test`：运行评测入口（底层脚本 `scripts/test.py`）。
+- `report`：运行报告生成（底层脚本 `scripts/report_paper_like_full.py`）。
+- `diag-gates`：运行 gate 诊断并导出 `gates.npz`/`y0.wav`/`y1.wav`。
+
+常用示例：
+
+```bash
+python scripts/run.py diag-gates --wav path/to/4ch.wav --config configs/paper_like_4mic.toml
+python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
+python scripts/run.py test -- --run_dir <...>
+```
+
+`diag-gates` 会打印并导出关键字段：
+
+- `target_gate_mean`：目标帧占比。
+- `noise_gate_mean`：整体噪声门控均值。
+- `noise_gate_on_target_mean`：在 `target_gate>0.5` 的帧上 `noise_gate` 的均值。
+  - **该值应接近 0**；若偏大，说明目标语音帧被误加到噪声统计，`R_nn` 可能被污染，进而导致 MVDR 不稳定。
+- `noise_gate_off_target_mean`：在 `target_gate<=0.5` 的帧上 `noise_gate` 的均值，应明显大于 0。
+
+导出目录默认 `artifacts/gate_diag/`，便于离线排查 gate 行为与听感（`y0` vs `y1`）。
+
+## Legacy / underlying scripts
+
+以下脚本仍保留，作为 `scripts/run.py` 的底层实现，不再作为主要用户入口：
+
+- `scripts/smoke_stft.py`
+- `scripts/smoke_mvdr.py`
+- `scripts/train.py`
+- `scripts/test.py`
+- `scripts/report_paper_like_full.py`
+
 ## Full training (paper-like)
 
 完整训练/评测/报告入口如下（默认输出在 `artifacts/`，支持 `--config` 指定 TOML 配置）：
