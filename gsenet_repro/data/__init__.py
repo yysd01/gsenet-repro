@@ -18,6 +18,7 @@ from .paper_synth import (
 from .paper_dataset import PaperLikeDataset
 from .real_fourmic_dir_dataset import RealFourMicDirDataset
 from .real_dataset import RealMultichannelDataset
+from .oppo_triplet_dataset import OppoPrecomputedY0Dataset, OppoTripletDataset
 from .synthesis import Gains, amp_to_db, db_to_amp, sample_gains, synthesize_pair
 
 __all__ = [
@@ -37,6 +38,8 @@ __all__ = [
     "PaperLikeDataset",
     "RealFourMicDirDataset",
     "RealMultichannelDataset",
+    "OppoTripletDataset",
+    "OppoPrecomputedY0Dataset",
     "sample_gains",
     "synthesize_y0_y1_yt",
     "synthesize_y0_y1_y2_y3_yt",

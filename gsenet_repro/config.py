@@ -38,6 +38,11 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "use_mcwf": 1,
         "mcwf_causal_frames": 4,
         "mic_positions": None,
+        "dataset_type": None,
+        "dataset_root": None,
+        "precomputed_y0_root": None,
+        "use_precomputed_y0": False,
+        "case_filter": None,
     },
     "stft_model": {
         "n_fft": 320,

@@ -135,11 +135,13 @@ python scripts/run.py <subcommand> ...
 - `test`：运行评测入口（底层脚本 `scripts/test.py`）。
 - `report`：运行报告生成（底层脚本 `scripts/report_paper_like_full.py`）。
 - `diag-gates`：运行 gate 诊断并导出 `gates.npz`/`y0.wav`/`y1.wav`。
+- `prep-oppo-y0`：对 Oppo 4ch clean/noise/noisy 三元组执行监督式 MVDR/LCMV，离线导出 `y0`。
 
 常用示例：
 
 ```bash
-python scripts/run.py diag-gates --wav path/to/4ch.wav --config configs/paper_like_4mic.toml
+python scripts/run.py prep-oppo-y0 --dataset-root /home/yishuoyang/dataset/oppo --split train --out-root artifacts/oppo_y0
+python scripts/run.py diag-gates --wav <从 out-root 导出的 noisy wav>
 python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
 python scripts/run.py test -- --run_dir <...>
 ```

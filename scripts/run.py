@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from gsenet_repro.config import resolve_config
 from gsenet_repro.pipeline.mcwf_frontend import DEFAULT_MIC_POSITIONS, _estimate_gates, mcwf_make_y0
+from scripts.prep_oppo_supervised_y0 import run_prep
 from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
@@ -216,6 +217,18 @@ def build_parser() -> argparse.ArgumentParser:
     diag.add_argument("--seconds", type=float, default=5.0, help="Only process the first N seconds.")
     diag.add_argument("--print-head", type=int, default=10, help="Print first N frames of (target_gate, noise_gate).")
 
+    prep = subparsers.add_parser(
+        "prep-oppo-y0",
+        help="Offline supervised MVDR/LCMV preprocessing for Oppo triplet dataset.",
+        description="Generate y0 (and y1_ref0/debug) from clean/noise/noisy 4ch triplets.",
+    )
+    prep.add_argument("--dataset-root", type=str, required=True)
+    prep.add_argument("--split", type=str, required=True, choices=["train", "valid", "test"])
+    prep.add_argument("--out-root", type=str, required=True)
+    prep.add_argument("--binsize", type=int, default=1)
+    prep.add_argument("--delta", type=float, default=1e-2)
+    prep.add_argument("--num-workers", type=int, default=0)
+
     return parser
 
 
@@ -223,6 +236,7 @@ def _print_short_help(parser: argparse.ArgumentParser) -> None:
     parser.print_help()
     print("\nCommon examples:")
     print("  python scripts/run.py diag-gates --wav path/to/4ch.wav --config configs/paper_like_4mic.toml")
+    print("  python scripts/run.py prep-oppo-y0 --dataset-root /path/to/oppo --split train --out-root artifacts/oppo_y0")
     print("  python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000")
     print("  python scripts/run.py test -- --run_dir artifacts/runs/<run_id>")
 
@@ -245,6 +259,17 @@ def main() -> None:
         except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
+        return
+
+    if args.command == "prep-oppo-y0":
+        run_prep(
+            dataset_root=args.dataset_root,
+            split=args.split,
+            out_root=args.out_root,
+            binsize=args.binsize,
+            delta=args.delta,
+            num_workers=args.num_workers,
+        )
         return
 
     raise SystemExit(f"Unknown command: {args.command}")

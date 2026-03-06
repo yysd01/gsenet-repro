@@ -29,6 +29,7 @@ from gsenet_repro.config import resolve_config, resolve_run_dir, save_resolved_c
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
 from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from gsenet_repro.data.real_dataset import RealMultichannelDataset
+from gsenet_repro.data.oppo_triplet_dataset import OppoPrecomputedY0Dataset
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
@@ -144,7 +145,16 @@ def _make_eval_batch(
     seed: int,
     pairing_config: Dict[str, object] | None = None,
 ) -> tuple[Dict[str, torch.Tensor], torch.utils.data.Dataset]:
-    if data_config["mode"] == "real":
+    if data_config.get("dataset_type") == "oppo_triplet":
+        dataset = OppoPrecomputedY0Dataset(
+            dataset_root=data_config["dataset_root"],
+            precomputed_y0_root=data_config["precomputed_y0_root"],
+            split="train",
+            case_filter=data_config.get("case_filter"),
+            sample_rate=data_config["sample_rate"],
+            ref_mic_index=data_config.get("ref_mic_index", 0),
+        )
+    elif data_config["mode"] == "real":
         dataset = RealMultichannelDataset(
             manifest_path=data_config.get("manifest_path"),
             root_dir=data_config.get("root_dir"),
@@ -352,7 +362,16 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         )
     )
 
-    if data_config["mode"] == "real":
+    if data_config.get("dataset_type") == "oppo_triplet":
+        dataset = OppoPrecomputedY0Dataset(
+            dataset_root=data_config["dataset_root"],
+            precomputed_y0_root=data_config["precomputed_y0_root"],
+            split="train",
+            case_filter=data_config.get("case_filter"),
+            sample_rate=data_config["sample_rate"],
+            ref_mic_index=data_config.get("ref_mic_index", 0),
+        )
+    elif data_config["mode"] == "real":
         dataset = RealMultichannelDataset(
             manifest_path=data_config.get("manifest_path"),
             root_dir=data_config.get("root_dir"),

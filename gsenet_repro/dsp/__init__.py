@@ -4,6 +4,17 @@ import importlib.util
 from .mcwf import mcwf
 from .mvdr import apply_beamformer, estimate_rnn, estimate_rtf, mvdr_weights
 from .stft import LOSS_STFT, MODEL_STFT, istft, stft
+from .supervised_bf import (
+    apply_beamformer as supervised_apply_beamformer,
+    beamform_sample,
+    build_doa_rtf_library,
+    estimate_rnn_from_noise,
+    estimate_rtf_from_clean_ev,
+    lcmv_weights,
+    mvdr_weights as supervised_mvdr_weights,
+    parse_doas_from_filename,
+    stft_4ch,
+)
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     from .torch_stft import istft as torch_istft
@@ -27,4 +38,14 @@ __all__ = [
     "torch_stft",
     "torch_istft",
     "mcwf_windowed_power",
+    "parse_doas_from_filename",
+    "stft_4ch",
+    "estimate_rnn_from_noise",
+    "estimate_rtf_from_clean_ev",
+    "supervised_mvdr_weights",
+    "lcmv_weights",
+    "supervised_apply_beamformer",
+    "build_doa_rtf_library",
+    "beamform_sample",
 ]
+
