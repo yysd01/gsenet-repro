@@ -9,7 +9,7 @@ from gsenet_repro.data.real_dataset import RealMultichannelDataset
 
 
 def _make_dummy_manifest() -> Path:
-    subprocess.run([sys.executable, "scripts/make_dummy_real_manifest.py"], check=True)
+    subprocess.run([sys.executable, "scripts/_legacy/make_dummy_real_manifest.py"], check=True)
     return Path("artifacts") / "dummy_real_dataset" / "manifest.csv"
 
 

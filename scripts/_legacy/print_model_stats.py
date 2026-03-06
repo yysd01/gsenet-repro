@@ -1,3 +1,4 @@
+# LEGACY / internal demo
 from __future__ import annotations
 
 import argparse
@@ -9,7 +10,7 @@ if importlib.util.find_spec("torch") is None:
     print("torch not installed. Install requirements-torch.txt to run stats.", file=sys.stderr)
     raise SystemExit(1)
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
 import torch

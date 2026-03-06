@@ -1,3 +1,4 @@
+# LEGACY / internal demo
 from __future__ import annotations
 
 import argparse
@@ -8,7 +9,7 @@ import sys
 import numpy as np
 import soundfile as sf
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
 from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset

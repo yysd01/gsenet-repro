@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from gsenet_repro.config import resolve_config
-from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
+from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
 def _write_dummy_checkpoint(run_dir: Path, config: dict) -> None:

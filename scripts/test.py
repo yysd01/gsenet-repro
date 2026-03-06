@@ -14,7 +14,7 @@ if importlib.util.find_spec("torch") is None:
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(REPO_ROOT))
 
-_EVAL_PATH = Path(__file__).resolve().parent / "eval_paper_like_full.py"
+_EVAL_PATH = Path(__file__).resolve().parent / "_legacy" / "eval_paper_like_full.py"
 _EVAL_SPEC = importlib.util.spec_from_file_location("eval_paper_like_full", _EVAL_PATH)
 if _EVAL_SPEC is None or _EVAL_SPEC.loader is None:  # pragma: no cover
     raise RuntimeError("Unable to load eval_paper_like_full module")
@@ -87,7 +87,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     argv = [
-        "eval_paper_like_full.py",
+        "_legacy/eval_paper_like_full.py",
         "--ckpt_path",
         str(ckpt_path),
         "--out_dir",

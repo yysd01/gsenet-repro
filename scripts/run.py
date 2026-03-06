@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 from gsenet_repro.config import resolve_config
 from gsenet_repro.pipeline.mcwf_frontend import DEFAULT_MIC_POSITIONS, _estimate_gates, mcwf_make_y0
 from scripts.prep_oppo_supervised_y0 import run_prep
-from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
+from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
 SCRIPT_BY_COMMAND = {
@@ -26,6 +26,7 @@ SCRIPT_BY_COMMAND = {
     "train": REPO_ROOT / "scripts" / "train.py",
     "test": REPO_ROOT / "scripts" / "test.py",
     "report": REPO_ROOT / "scripts" / "report_paper_like_full.py",
+    "stream-mvdr": REPO_ROOT / "scripts" / "stream_mvdr.py",
 }
 
 
@@ -194,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("train", "Run full training wrapper (underlying script: scripts/train.py)."),
         ("test", "Run evaluation wrapper (underlying script: scripts/test.py)."),
         ("report", "Generate paper-like report (underlying script: scripts/report_paper_like_full.py)."),
+        ("stream-mvdr", "Run online MVDR streamer over a 4ch wav (underlying script: scripts/stream_mvdr.py)."),
     ):
         sub = subparsers.add_parser(cmd, help=help_text, description=help_text)
         sub.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args forwarded to underlying script.")
@@ -239,6 +241,7 @@ def _print_short_help(parser: argparse.ArgumentParser) -> None:
     print("  python scripts/run.py prep-oppo-y0 --dataset-root /path/to/oppo --split train --out-root artifacts/oppo_y0")
     print("  python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000")
     print("  python scripts/run.py test -- --run_dir artifacts/runs/<run_id>")
+    print("  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0")
 
 
 def main() -> None:

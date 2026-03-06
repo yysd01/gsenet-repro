@@ -11,7 +11,7 @@ else:  # pragma: no cover
     DataLoader = None
 
 from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
-from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
+from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
 torch_available = torch is not None

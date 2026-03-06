@@ -1,3 +1,4 @@
+# LEGACY / internal demo
 from __future__ import annotations
 
 import argparse
@@ -11,7 +12,7 @@ import re
 import numpy as np
 import soundfile as sf
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
 if importlib.util.find_spec("torch") is None:

@@ -8,5 +8,6 @@ __all__ = ["GSENetStreamer"]
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     from .mcwf_streamer import MCWFStreamer
+    from .mvdr_streamer import MVDRStreamer
 
-    __all__.append("MCWFStreamer")
+    __all__.extend(["MCWFStreamer", "MVDRStreamer"])
