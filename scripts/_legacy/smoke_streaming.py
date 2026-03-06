@@ -1,3 +1,4 @@
+# LEGACY / internal demo
 from __future__ import annotations
 
 from pathlib import Path
@@ -11,7 +12,7 @@ except ImportError as exc:
     print("Torch not installed; skipping streaming smoke.")
     raise SystemExit(0) from exc
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
 from gsenet_repro.dsp import MODEL_STFT

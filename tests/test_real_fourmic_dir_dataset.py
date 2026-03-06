@@ -8,7 +8,7 @@ from gsenet_repro.data.real_fourmic_dir_dataset import (
     RealFourMicDirDataset,
     canonical_pair_key,
 )
-from scripts.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
+from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
 
 
 def test_real_fourmic_dir_dataset_shapes(tmp_path) -> None:

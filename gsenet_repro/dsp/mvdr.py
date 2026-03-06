@@ -1,3 +1,4 @@
+# LEGACY: online gate/EMA MVDR variant; keep for backward compatibility.
 from __future__ import annotations
 
 from dataclasses import dataclass

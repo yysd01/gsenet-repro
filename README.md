@@ -59,7 +59,7 @@ name = "minimal"
 提供 `GSENetStreamer` 以 chunk 形式运行最小版 GSENet。streamer 采用固定的 `algorithmic_delay`（默认 `MODEL_STFT.win_length`）处理 STFT/OLA 带来的算法延迟，因此离线与流式输出在去掉前 `delay` 样本后应一致。可运行脚本验证：
 
 ```bash
-python scripts/smoke_streaming.py
+python scripts/_legacy/smoke_streaming.py
 ```
 
 该脚本需要安装 torch；若未安装则会自动跳过。
@@ -69,7 +69,7 @@ python scripts/smoke_streaming.py
 新增 `MCWFStreamer` 实现 4-mic 逐帧流式 MCWF（支持 `C>=2`）。每推进一个 hop 形成新帧，仅使用当前帧与过去 3 帧的因果窗统计功率（`causal_frames=4`），更新 Wiener 增益并立即输出该帧对应的 `hop_length` 样本。该实现显式维护 `algorithmic_delay_samples`（默认 `win_length - hop_length`），用于对齐离线 MCWF 输出。可运行：
 
 ```bash
-python scripts/smoke_mcwf_streamer.py
+python scripts/_legacy/smoke_mcwf_streamer.py
 ```
 
 通过去掉前导延迟样本，可与离线 MCWF 输出对齐并允许极小数值误差。该实现为论文 MCWF 的可运行简化版，后续可替换更精确的 beamformer 实现。
@@ -108,8 +108,7 @@ python -m pip install -r requirements-metrics.txt
 在 `MinimalGSENet` 中加入 MCWF 预处理层，多麦克风输入会先在 STFT 域估计噪声功率并生成增益，再传入 GSENet 卷积层。示例训练/验证流程如下：
 
 ```bash
-python scripts/make_paper_batch.py
-python scripts/smoke_train_paper_like.py
+python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
 ```
 
 `smoke_train_paper_like.py` 会自动生成四麦克风合成数据（包含 RIR、噪声与干扰源），使用 `LOSS_STFT` 参数进行 STFT reconstruction loss，并在训练结束后输出：
@@ -129,13 +128,14 @@ python scripts/run.py <subcommand> ...
 
 支持的子命令：
 
-- `stft`：运行 STFT roundtrip 烟雾测试（底层脚本 `scripts/smoke_stft.py`）。
-- `mvdr`：运行 MVDR 烟雾测试（底层脚本 `scripts/smoke_mvdr.py`）。
-- `train`：运行训练入口（底层脚本 `scripts/train.py`）。
-- `test`：运行评测入口（底层脚本 `scripts/test.py`）。
-- `report`：运行报告生成（底层脚本 `scripts/report_paper_like_full.py`）。
+- `stft`：运行 STFT roundtrip 烟雾测试。
+- `mvdr`：运行 MVDR 烟雾测试。
+- `train`：运行训练入口。
+- `test`：运行评测入口。
+- `report`：运行报告生成。
 - `diag-gates`：运行 gate 诊断并导出 `gates.npz`/`y0.wav`/`y1.wav`。
 - `prep-oppo-y0`：对 Oppo 4ch clean/noise/noisy 三元组执行监督式 MVDR/LCMV，离线导出 `y0`。
+- `stream-mvdr`：在线 MVDR 流式处理 4ch wav 并输出 `y0.wav`。
 
 常用示例：
 
@@ -144,6 +144,7 @@ python scripts/run.py prep-oppo-y0 --dataset-root /home/yishuoyang/dataset/oppo 
 python scripts/run.py diag-gates --wav <从 out-root 导出的 noisy wav>
 python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
 python scripts/run.py test -- --run_dir <...>
+python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0
 ```
 
 `diag-gates` 会打印并导出关键字段：
@@ -184,7 +185,7 @@ python scripts/report_paper_like_full.py --run_dir <...>
 快速查看论文规模模型的参数量与 STFT 配置：
 
 ```bash
-python scripts/print_model_stats.py --config configs/real_dataset_paper_scale.toml
+python scripts/_legacy/print_model_stats.py --config configs/real_dataset_paper_scale.toml
 ```
 
 ## 配置文件（TOML）
@@ -230,7 +231,7 @@ dataset_root/
 快速验收：
 
 ```bash
-python scripts/make_dummy_real_dir_dataset.py
+python scripts/_legacy/make_dummy_real_dir_dataset.py
 python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 20 --run_dir artifacts/runs/_demo_real_dir
 python scripts/test.py --run_dir artifacts/runs/_demo_real_dir
 ```
@@ -240,7 +241,7 @@ python scripts/test.py --run_dir artifacts/runs/_demo_real_dir
 提供 `RealMultichannelDataset` 支持 manifest 读取真实 4-mic 数据。可以通过脚本生成 dummy 数据并验证端到端：
 
 ```bash
-python scripts/make_dummy_real_manifest.py
+python scripts/_legacy/make_dummy_real_manifest.py
 python scripts/train.py --config configs/real_dataset_4mic.toml --num_steps 20
 ```
 
@@ -255,7 +256,7 @@ python -m pip install -r requirements-viz.txt
 运行脚本生成样例数据：
 
 ```bash
-python scripts/make_dummy_batch.py
+python scripts/_legacy/make_dummy_batch.py
 ```
 
 输出 `artifacts/dummy_batch.npz`，包含字段：`y0`、`y1`、`yt`、`meta`（JSON 字符串，记录采样到的增益与参数）。
@@ -304,8 +305,7 @@ python scripts/make_paper_batch.py
 复现扩展数据集流程：
 
 ```bash
-python scripts/make_paper_batch.py
-python scripts/smoke_train_paper_like.py
+python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
 ```
 
 `smoke_train_paper_like.py` 会使用扩展后的合成数据进行联合训练，训练过程中每 5 个 epoch 打印一次 SNR/训练损失/验证损失，并在测试集上输出每个样本的 SNR 提升与音质评分。由于项目保持纯 numpy/scipy 依赖，PESQ/STOI 使用 `gsenet_repro/eval/metrics.py` 中的 proxy 实现，用于回归测试和相对对比。
