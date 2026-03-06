@@ -1,0 +1,117 @@
+[run]
+seed = 0
+device = "auto"
+run_dir = ""
+
+[data]
+mode = "real_dir"
+dataset_type = "oppo_triplet"
+dataset_root = "/home/yishuoyang/dataset/oppo"
+precomputed_y0_root = "artifacts/oppo_y0"
+use_precomputed_y0 = true
+sample_rate = 16000
+segment_seconds = 1.0
+num_mics = 4
+ref_mic_index = 0
+clean_ref_mic_index = 0
+use_mcwf = 0
+mcwf_causal_frames = 4
+
+[stft_model]
+n_fft = 256
+win_length = 256
+hop_length = 128
+window = "hann"
+center = false
+
+[stft_loss]
+n_fft = 1024
+win_length = 1024
+hop_length = 256
+
+[model]
+name = "gsenet_paper_scale"
+leaky_relu_slope = 0.3
+stem_channels = 16
+head_channels = 2
+remove_dc = false
+
+[[model.encoder_blocks]]
+cin = 16
+cout = 32
+stime = 1
+sfreq = 2
+dtime = false
+
+[[model.encoder_blocks]]
+cin = 32
+cout = 48
+stime = 2
+sfreq = 2
+dtime = false
+
+[[model.encoder_blocks]]
+cin = 48
+cout = 48
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.encoder_blocks]]
+cin = 48
+cout = 96
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.encoder_blocks]]
+cin = 96
+cout = 96
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.decoder_blocks]]
+cin = 96
+cout = 96
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.decoder_blocks]]
+cin = 96
+cout = 48
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.decoder_blocks]]
+cin = 48
+cout = 48
+stime = 1
+sfreq = 2
+dtime = true
+
+[[model.decoder_blocks]]
+cin = 48
+cout = 32
+stime = 2
+sfreq = 2
+dtime = false
+
+[[model.decoder_blocks]]
+cin = 32
+cout = 16
+stime = 1
+sfreq = 2
+dtime = false
+
+[train]
+batch_size = 4
+num_steps = 2000
+lr = 1e-4
+log_every = 10
+eval_every = 200
+ckpt_every = 500
+num_workers = 0
+prefetch_factor = 2
