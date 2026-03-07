@@ -19,24 +19,12 @@ jobs:
           pip install ruff pre-commit
       - name: Unicode sanitize check
         run: python tools/sanitize_unicode.py --check
-      - name: Ruff lint
-        run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
-
-  test-base:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Ruff lint
+        run: ruff check .
       - name: Run tests
-        run: python -m pytest -q
+        run: PYTHONPATH=. pytest -q
 
   test-torch:
     runs-on: ubuntu-latest

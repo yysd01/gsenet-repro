@@ -19,4 +19,4 @@ repos:
         entry: python tools/sanitize_unicode.py --check
         language: system
         pass_filenames: false
-        types: [python]
+        files: "\.(py|toml|ya?ml|md)$"
