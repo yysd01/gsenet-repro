@@ -29,6 +29,7 @@ NONSTANDARD_NEWLINE_MAP = {
     0x000B: "\n",  # VERTICAL TAB
     0x000C: "\n",  # FORM FEED
 }
+ALLOWED_CONTROL_CHARS = {"\n", "\t"}
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,12 @@ def is_bidi(codepoint: int) -> bool:
 
 
 def is_disallowed_control(ch: str) -> bool:
-    return unicodedata.category(ch) == "Cf"
+    category = unicodedata.category(ch)
+    if category == "Cf":
+        return True
+    if category != "Cc":
+        return False
+    return ch not in ALLOWED_CONTROL_CHARS
 
 
 def is_forbidden_char(ch: str) -> bool:
@@ -57,7 +63,7 @@ def is_forbidden_char(ch: str) -> bool:
         return True
     if is_bidi(cp):
         return True
-    if ch in {"\n", "\t"}:
+    if ch in ALLOWED_CONTROL_CHARS:
         return False
     return is_disallowed_control(ch)
 
@@ -119,8 +125,13 @@ def parse_include_exts(raw: str) -> set[str]:
     return {ext if ext.startswith(".") else f".{ext}" for ext in parsed}
 
 
+def read_text_preserve_newlines(path: Path) -> str:
+    with path.open("r", encoding="utf-8", newline="") as file:
+        return file.read()
+
+
 def scan_path(path: Path) -> list[Issue]:
-    return scan_text(path.read_text(encoding="utf-8"))
+    return scan_text(read_text_preserve_newlines(path))
 
 
 def format_issue(issue: Issue) -> str:
@@ -149,7 +160,7 @@ def run_fix(root: Path, include_exts: set[str], verbose: bool = False) -> int:
     changed = 0
     issue_count = 0
     for path in iter_target_files(root, include_exts):
-        content = path.read_text(encoding="utf-8")
+        content = read_text_preserve_newlines(path)
         issues = scan_text(content)
         if not issues:
             continue
