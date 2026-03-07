@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,18 @@ import numpy as np
 import soundfile as sf
 
 from gsenet_repro.dsp.stft import stft
+
+REQUIRED_METADATA_FIELDS = (
+    "sample_rate",
+    "n_fft",
+    "win_length",
+    "hop_length",
+    "window",
+    "center",
+    "num_mics",
+    "ref_ch",
+    "binsize_deg",
+)
 
 
 def parse_doas_from_filename(name: str) -> tuple[list[int], list[int]]:
@@ -90,6 +103,27 @@ def _estimate_rtf_from_clean_ev(Xs: np.ndarray, ref_ch: int = 0, eps: float = 1e
     return d
 
 
+def save_rtf_lib(path: str | Path, lib: dict[str, Any]) -> None:
+    path = Path(path)
+    payload: dict[str, Any] = {
+        "doa_bins": np.asarray(lib["doa_bins"], np.int32),
+        "d_mean": np.asarray(lib["d_mean"], np.complex64),
+    }
+    for key in REQUIRED_METADATA_FIELDS:
+        if key not in lib:
+            raise ValueError(f"Missing required rtf_lib metadata: {key}")
+    payload["sample_rate"] = np.int32(lib["sample_rate"])
+    payload["n_fft"] = np.int32(lib["n_fft"])
+    payload["win_length"] = np.int32(lib["win_length"])
+    payload["hop_length"] = np.int32(lib["hop_length"])
+    payload["window"] = np.asarray(str(lib["window"]))
+    payload["center"] = np.bool_(lib["center"])
+    payload["num_mics"] = np.int32(lib["num_mics"])
+    payload["ref_ch"] = np.int32(lib["ref_ch"])
+    payload["binsize_deg"] = np.int32(lib["binsize_deg"])
+    np.savez(path, **payload)
+
+
 def build_doa_rtf_library(
     train_root: str | Path,
     binsize_deg: int,
@@ -98,25 +132,37 @@ def build_doa_rtf_library(
 ) -> dict[str, Any]:
     root = Path(train_root)
     accum: dict[int, list[np.ndarray]] = {}
+    sample_rate: int | None = None
     for clean_wav in sorted(root.glob("*/clean/*.wav")):
         src_doas, _ = parse_doas_from_filename(clean_wav.name)
         if len(src_doas) != 1:
             continue
         wav, sr = sf.read(str(clean_wav), always_2d=True, dtype="float32")
-        if sr != 16000:
-            raise ValueError(f"Expected sr=16000, got {sr} for {clean_wav}")
+        if sample_rate is None:
+            sample_rate = int(sr)
+        elif int(sr) != sample_rate:
+            raise ValueError(f"Inconsistent sample rates in {root}: got {sr} and {sample_rate}")
         d = _estimate_rtf_from_clean_ev(_stft_4ch_np(wav.T, stft_cfg), ref_ch=ref_ch)
         d_np = np.asarray(d, dtype=np.complex64)
         accum.setdefault(_doa_to_bin(src_doas[0], binsize_deg), []).append(d_np)
 
     if not accum:
         raise ValueError(f"No single-target clean samples found under: {root}")
+    if sample_rate is None:
+        raise ValueError(f"Failed to determine sample rate under: {root}")
     doa_bins = sorted(accum.keys())
     d_stack = np.stack([np.stack(accum[b], axis=0).mean(axis=0) for b in doa_bins], axis=0)
     d_stack[:, :, ref_ch] = np.complex64(1.0 + 0.0j)
     return {
         "doa_bins": np.asarray(doa_bins, np.int32),
         "d_mean": d_stack.astype(np.complex64),
+        "sample_rate": int(sample_rate),
+        "n_fft": int(stft_cfg["n_fft"]),
+        "win_length": int(stft_cfg["win_length"]),
+        "hop_length": int(stft_cfg["hop_length"]),
+        "window": str(stft_cfg.get("window", "hann")),
+        "center": bool(stft_cfg.get("center", False)),
+        "num_mics": int(d_stack.shape[-1]),
         "binsize_deg": int(binsize_deg),
         "ref_ch": int(ref_ch),
     }
@@ -124,13 +170,38 @@ def build_doa_rtf_library(
 
 def load_rtf_lib(path: str | Path) -> dict[str, Any]:
     data = np.load(path)
-    return {
+    payload: dict[str, Any] = {
         "doa_bins": data["doa_bins"],
         "d_mean": data["d_mean"],
-        "binsize_deg": int(data["binsize_deg"]),
-        "ref_ch": int(data["ref_ch"]),
         "path": str(path),
     }
+    missing = [key for key in REQUIRED_METADATA_FIELDS if key not in data]
+    if missing:
+        warnings.warn(
+            f"rtf_lib missing metadata {missing}; please rebuild before online streaming.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        payload["missing_metadata"] = tuple(missing)
+        for key in REQUIRED_METADATA_FIELDS:
+            payload.setdefault(key, None)
+        return payload
+
+    payload.update(
+        {
+            "sample_rate": int(data["sample_rate"]),
+            "n_fft": int(data["n_fft"]),
+            "win_length": int(data["win_length"]),
+            "hop_length": int(data["hop_length"]),
+            "window": str(data["window"].item() if np.asarray(data["window"]).shape == () else data["window"]),
+            "center": bool(data["center"]),
+            "num_mics": int(data["num_mics"]),
+            "ref_ch": int(data["ref_ch"]),
+            "binsize_deg": int(data["binsize_deg"]),
+            "missing_metadata": tuple(),
+        }
+    )
+    return payload
 
 
 def get_d_from_lib(rtf_lib: dict[str, Any], doa_deg: int) -> np.ndarray:

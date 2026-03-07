@@ -6,19 +6,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
-import soundfile as sf
-from scipy.signal import resample_poly
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from gsenet_repro.config import resolve_config
-from gsenet_repro.pipeline.mcwf_frontend import DEFAULT_MIC_POSITIONS, _estimate_gates, mcwf_make_y0
-from scripts.prep_oppo_supervised_y0 import run_prep
-from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
-
 
 SCRIPT_BY_COMMAND = {
     "stft": REPO_ROOT / "scripts" / "smoke_stft.py",
@@ -41,7 +31,11 @@ def _run_passthrough(command: str, extra_args: list[str]) -> None:
     subprocess.run([sys.executable, str(script), *_normalize_extra(extra_args)], check=True)
 
 
-def _load_wav(path: Path, target_sr: int, max_mics: int) -> tuple[np.ndarray, int]:
+def _load_wav(path: Path, target_sr: int, max_mics: int):
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import resample_poly
+
     wav, sr = sf.read(str(path), always_2d=True, dtype="float32")
     x = wav.T  # (C, T)
     if x.shape[0] < 2:
@@ -57,6 +51,8 @@ def _load_wav(path: Path, target_sr: int, max_mics: int) -> tuple[np.ndarray, in
 
 
 def _find_dummy_mic_wav(root: Path) -> Path:
+    import soundfile as sf
+
     candidates = sorted(root.glob("*/mic/*.wav"))
     if not candidates:
         raise FileNotFoundError(f"No dummy mic wav files found under {root}")
@@ -68,7 +64,9 @@ def _find_dummy_mic_wav(root: Path) -> Path:
     return candidates[0]
 
 
-def _prepare_dummy_input(target_sr: int) -> tuple[np.ndarray, int, Path]:
+def _prepare_dummy_input(target_sr: int):
+    from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
+
     dummy_root = REPO_ROOT / "artifacts" / "_dummy_real_dir"
     if not dummy_root.exists():
         print(f"Dummy dataset not found, generating at {dummy_root}")
@@ -81,7 +79,10 @@ def _prepare_dummy_input(target_sr: int) -> tuple[np.ndarray, int, Path]:
     return x_mics, sr, wav_path
 
 
-def _resolve_mic_positions(cfg: dict, override_json: str | None, channels: int) -> np.ndarray:
+def _resolve_mic_positions(cfg: dict, override_json: str | None, channels: int):
+    import numpy as np
+    from gsenet_repro.pipeline.mcwf_frontend import DEFAULT_MIC_POSITIONS
+
     if override_json is not None:
         positions = np.asarray(json.loads(override_json), dtype=np.float32)
     elif cfg["data"].get("mic_positions") is not None:
@@ -99,6 +100,12 @@ def _resolve_mic_positions(cfg: dict, override_json: str | None, channels: int) 
 
 
 def _diag_gates(args: argparse.Namespace) -> None:
+    import numpy as np
+    import soundfile as sf
+
+    from gsenet_repro.config import resolve_config
+    from gsenet_repro.pipeline.mcwf_frontend import _estimate_gates, mcwf_make_y0
+
     cfg = resolve_config(args.config)
     sample_rate = int(args.sample_rate or cfg["data"]["sample_rate"])
     num_mics = int(cfg["data"].get("num_mics", 4))
@@ -242,6 +249,7 @@ def _print_short_help(parser: argparse.ArgumentParser) -> None:
     print("  python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000")
     print("  python scripts/run.py test -- --run_dir artifacts/runs/<run_id>")
     print("  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0")
+    print("  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0 --mode lcmv --lcmv-span-deg 30 --lcmv-k 3")
 
 
 def main() -> None:
@@ -265,6 +273,8 @@ def main() -> None:
         return
 
     if args.command == "prep-oppo-y0":
+        from scripts.prep_oppo_supervised_y0 import run_prep
+
         run_prep(
             dataset_root=args.dataset_root,
             split=args.split,

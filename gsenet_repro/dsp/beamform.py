@@ -43,14 +43,18 @@ def diag_load(R: np.ndarray | "torch.Tensor", delta: float) -> np.ndarray | "tor
     return hermitian(loaded)
 
 
-def mvdr_weights(Rnn: np.ndarray | "torch.Tensor", d: np.ndarray | "torch.Tensor") -> np.ndarray | "torch.Tensor":
+def mvdr_weights(
+    Rnn: np.ndarray | "torch.Tensor",
+    d: np.ndarray | "torch.Tensor",
+    ref_ch: int = 0,
+) -> np.ndarray | "torch.Tensor":
     if _is_torch(Rnn) and _is_torch(d):
         F, C, _ = Rnn.shape
         u = torch.linalg.solve(Rnn, d.unsqueeze(-1)).squeeze(-1)
         denom = torch.sum(d.conj() * u, dim=-1)
         w = u / torch.where(denom.abs() > 1e-8, denom, torch.ones_like(denom)).unsqueeze(-1)
         fallback = torch.zeros((F, C), dtype=Rnn.dtype, device=Rnn.device)
-        fallback[:, 0] = 1.0 + 0.0j
+        fallback[:, int(ref_ch)] = 1.0 + 0.0j
         return torch.where((denom.abs() > 1e-8).unsqueeze(-1), w, fallback)
 
     R = _to_numpy(Rnn)
@@ -62,7 +66,7 @@ def mvdr_weights(Rnn: np.ndarray | "torch.Tensor", d: np.ndarray | "torch.Tensor
         denom = np.vdot(dv[f], u)
         if abs(denom) < 1e-8:
             w[f] = 0.0
-            w[f, 0] = 1.0 + 0.0j
+            w[f, int(ref_ch)] = 1.0 + 0.0j
         else:
             w[f] = u / denom
     return w

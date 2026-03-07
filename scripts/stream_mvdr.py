@@ -26,6 +26,9 @@ def main() -> None:
     parser.add_argument("--doa", type=int, default=None)
     parser.add_argument("--doa-track-csv", type=str, default=None)
     parser.add_argument("--chunk-size", type=int, default=1280)
+    parser.add_argument("--mode", type=str, default="mvdr", choices=["mvdr", "lcmv"])
+    parser.add_argument("--lcmv-span-deg", type=int, default=30)
+    parser.add_argument("--lcmv-k", type=int, default=3)
     parser.add_argument("--out", type=str, default="y0.wav")
     args = parser.parse_args()
 
@@ -37,7 +40,14 @@ def main() -> None:
         raise SystemExit(f"expected 4 channels, got {wav.shape[1]}")
     x = torch.from_numpy(wav.T)
 
-    streamer = MVDRStreamer(sample_rate=sr, num_mics=4, center=False)
+    streamer = MVDRStreamer(
+        sample_rate=sr,
+        num_mics=4,
+        center=False,
+        mode=args.mode,
+        lcmv_span_deg=args.lcmv_span_deg,
+        lcmv_k=args.lcmv_k,
+    )
     streamer.load_rtf_lib(args.rtf_lib)
     if args.doa is not None:
         streamer.set_target_doa(args.doa)

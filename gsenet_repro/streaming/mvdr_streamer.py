@@ -1,4 +1,4 @@
-"""Online real-time MVDR/LCMV-style streamer with target-likeness gated Rnn EMA."""
+"""Online stateful single-stream MVDR/LCMV streamer with target-likeness gated Rnn EMA."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,11 +7,17 @@ from typing import Optional
 import numpy as np
 import torch
 
-from gsenet_repro.dsp.beamform import diag_load, hermitian
+from gsenet_repro.dsp.beamform import diag_load, hermitian, lcmv_weights, mvdr_weights
 from gsenet_repro.dsp.rtf_lib import get_d_from_lib, load_rtf_lib
 
 
 class MVDRStreamer:
+    """Stateful real-time beamformer for one stream.
+
+    This class maintains recurrent covariance/OLA state and is intentionally single-stream.
+    Call :meth:`process` with ``(C, T)`` or ``(1, C, T)`` only.
+    """
+
     def __init__(
         self,
         sample_rate: int = 16000,
@@ -29,15 +35,24 @@ class MVDRStreamer:
         coh_fmax_hz: float = 5000.0,
         coh_t0: float = 0.15,
         coh_t1: float = 0.35,
+        mode: str = "mvdr",
+        lcmv_span_deg: int = 30,
+        lcmv_k: int = 3,
     ) -> None:
         if window != "hann":
             raise ValueError("Only 'hann' window is supported")
         if center:
             raise ValueError("MVDRStreamer requires center=False for real-time processing")
+        if mode not in {"mvdr", "lcmv"}:
+            raise ValueError("mode must be 'mvdr' or 'lcmv'")
+        if lcmv_k < 1:
+            raise ValueError("lcmv_k must be >= 1")
         self.sample_rate = sample_rate
         self.n_fft = n_fft
         self.win_length = win_length
         self.hop_length = hop_length
+        self.window = window
+        self.center = center
         self.num_mics = num_mics
         self.ref_ch = ref_ch
         self.diag_load_value = diag_load
@@ -45,6 +60,9 @@ class MVDRStreamer:
         self.update_interval_frames = max(1, int(update_interval_frames))
         self.coh_t0 = float(coh_t0)
         self.coh_t1 = float(coh_t1)
+        self.mode = mode
+        self.lcmv_span_deg = int(lcmv_span_deg)
+        self.lcmv_k = int(lcmv_k)
         self.algorithmic_delay_samples = win_length - hop_length
 
         self._window_cpu = torch.hann_window(win_length, periodic=False)
@@ -69,8 +87,39 @@ class MVDRStreamer:
         self._w: Optional[torch.Tensor] = None
         self._frame_counter: int = 0
 
+    def _validate_rtf_metadata(self, rtf_lib: dict[str, np.ndarray]) -> None:
+        missing = tuple(rtf_lib.get("missing_metadata", ()))
+        if missing:
+            raise ValueError(
+                f"rtf_lib is missing metadata {missing}; please rebuild with matching STFT settings. "
+                "请用相同 STFT 参数重新 build rtf_lib"
+            )
+        if int(rtf_lib["num_mics"]) != self.num_mics:
+            raise ValueError(
+                f"rtf_lib num_mics={rtf_lib['num_mics']} != streamer num_mics={self.num_mics}; "
+                "请用相同 STFT 参数重新 build rtf_lib"
+            )
+        lib_nfft = int(rtf_lib["n_fft"])
+        if lib_nfft != self.n_fft and (lib_nfft // 2 + 1) != (self.n_fft // 2 + 1):
+            raise ValueError(
+                f"rtf_lib n_fft={lib_nfft} mismatch streamer n_fft={self.n_fft}; "
+                "请用相同 STFT 参数重新 build rtf_lib"
+            )
+        if int(rtf_lib["sample_rate"]) != self.sample_rate:
+            raise ValueError(
+                f"rtf_lib sample_rate={rtf_lib['sample_rate']} mismatch streamer sample_rate={self.sample_rate}; "
+                "请用相同 STFT 参数重新 build rtf_lib"
+            )
+        if str(rtf_lib["window"]) != self.window or bool(rtf_lib["center"]) != self.center:
+            raise ValueError(
+                f"rtf_lib window/center=({rtf_lib['window']},{rtf_lib['center']}) mismatch "
+                f"streamer ({self.window},{self.center}); 请用相同 STFT 参数重新 build rtf_lib"
+            )
+
     def load_rtf_lib(self, path: str | Path) -> None:
-        self.rtf_lib = load_rtf_lib(path)
+        lib = load_rtf_lib(path)
+        self._validate_rtf_metadata(lib)
+        self.rtf_lib = lib
 
     def set_target_doa(self, doa_deg: int) -> None:
         if self.rtf_lib is None:
@@ -105,21 +154,37 @@ class MVDRStreamer:
             self._ola_buffer = torch.zeros((batch, self.win_length), device=device, dtype=dtype)
             self._ola_window_sum = torch.zeros_like(self._ola_buffer)
 
+    def _constraint_angles(self, doa: int) -> list[int]:
+        if self.lcmv_k <= 1:
+            return [int(doa)]
+        offsets = np.linspace(-self.lcmv_span_deg, self.lcmv_span_deg, self.lcmv_k)
+        return [int(round(doa + float(off))) % 360 for off in offsets]
+
     def _compute_w(self) -> torch.Tensor:
         if self._Rnn is None or self._d is None:
             raise RuntimeError("state not initialized")
-        u = torch.linalg.solve(self._Rnn, self._d.unsqueeze(-1)).squeeze(-1)
-        denom = torch.sum(self._d.conj() * u, dim=-1)
-        w = u / torch.where(denom.abs() > 1e-8, denom, torch.ones_like(denom)).unsqueeze(-1)
-        fallback = torch.zeros_like(w)
-        fallback[:, self.ref_ch] = 1.0 + 0.0j
-        return torch.where((denom.abs() > 1e-8).unsqueeze(-1), w, fallback)
+        if self.mode == "mvdr" or self.target_doa is None or self.rtf_lib is None:
+            return mvdr_weights(self._Rnn, self._d, ref_ch=self.ref_ch)
+
+        try:
+            d_list = [
+                torch.from_numpy(get_d_from_lib(self.rtf_lib, a).astype(np.complex64)).to(self._Rnn.device)
+                for a in self._constraint_angles(self.target_doa)
+            ]
+            D = torch.stack(d_list, dim=-1)
+            g = torch.ones((D.shape[-1],), dtype=torch.float32, device=self._Rnn.device)
+            return lcmv_weights(self._Rnn, D, g)
+        except Exception as exc:  # pragma: no cover - fallback path
+            print(f"WARNING: LCMV constraints failed ({exc}); fallback to MVDR")
+            return mvdr_weights(self._Rnn, self._d, ref_ch=self.ref_ch)
 
     def process(self, x_chunk: torch.Tensor, target_doa: int | None = None) -> torch.Tensor:
         if target_doa is not None:
             self.set_target_doa(target_doa)
 
         x_chunk, squeeze = self._ensure_batch(x_chunk)
+        if x_chunk.shape[0] != 1:
+            raise ValueError("MVDRStreamer is single-stream; pass (C,T) or (1,C,T)")
         if x_chunk.shape[1] != self.num_mics:
             raise ValueError(f"x_chunk must have {self.num_mics} channels")
 
@@ -143,18 +208,15 @@ class MVDRStreamer:
         while self._input_buffer.shape[-1] >= self.win_length:
             frame = self._input_buffer[:, :, : self.win_length]
             windowed = frame * window
-            spectrum = torch.fft.rfft(windowed, n=self.n_fft, dim=-1).transpose(1, 2)  # (B,F,C)
-            x_fc = spectrum[0]
+            spectrum = torch.fft.rfft(windowed, n=self.n_fft, dim=-1).transpose(1, 2)  # (1,F,C)
+            x_fc = spectrum.squeeze(0)
 
             d = self._d.to(device=x_chunk.device)
             proj = torch.sum(d.conj() * x_fc, dim=-1)
             d_norm = torch.sum(d.conj() * d, dim=-1).real
             x_norm = torch.sum(x_fc.conj() * x_fc, dim=-1).real
             coh = (proj.abs() ** 2) / (d_norm * x_norm + 1e-8)
-            if band_mask.any():
-                score = coh[band_mask].mean()
-            else:
-                score = coh.mean()
+            score = coh[band_mask].mean() if band_mask.any() else coh.mean()
             target_like = torch.clamp((score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0)
             noise_gate = 1.0 - target_like
 
