@@ -13,6 +13,7 @@ from gsenet_repro.dsp.rtf_lib import (
     get_d_from_lib,
     load_rtf_lib,
     parse_doas_from_filename,
+    save_rtf_lib,
 )
 
 try:  # pragma: no cover - optional torch path
@@ -120,20 +121,16 @@ def build_doa_rtf_library(
     stft_cfg: dict[str, Any] | None = None,
     ref_ch: int = 0,
     artifact_dir: str | Path = "artifacts",
+    sample_rate: int = 16000,
 ) -> dict[str, Any]:
     if stft_cfg is None:
         stft_cfg = {"n_fft": 256, "win_length": 256, "hop_length": 128, "window": "hann", "center": False}
     lib = _build_doa_rtf_library(train_root=train_root, binsize_deg=binsize_deg, stft_cfg=stft_cfg, ref_ch=ref_ch)
+    lib["sample_rate"] = int(lib.get("sample_rate", sample_rate))
     out_dir = Path(artifact_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     save_path = out_dir / f"rtf_lib_oppo_binsize{binsize_deg}.npz"
-    np.savez(
-        save_path,
-        doa_bins=np.asarray(lib["doa_bins"], np.int32),
-        d_mean=np.asarray(lib["d_mean"], np.complex64),
-        binsize_deg=np.int32(binsize_deg),
-        ref_ch=np.int32(ref_ch),
-    )
+    save_rtf_lib(save_path, lib)
     lib["path"] = str(save_path)
     return lib
 
@@ -156,7 +153,7 @@ def beamform_sample(
     constraint_error = 0.0
     if len(src_doas) == 1:
         d = estimate_rtf_from_clean_ev(Xs, ref_ch=ref_ch)
-        w = mvdr_weights(Rnn, d)
+        w = mvdr_weights(Rnn, d, ref_ch=ref_ch)
         proj = np.sum(np.conjugate(_to_numpy(w)) * _to_numpy(d), axis=1)
         constraint_error = float(np.max(np.abs(proj - 1.0)))
     elif len(src_doas) == 2 and rtf_lib is not None:
@@ -166,7 +163,7 @@ def beamform_sample(
         w = lcmv_weights(Rnn, D, np.array([1.0, 1.0], dtype=np.float32))
     else:
         d = estimate_rtf_from_clean_ev(Xs, ref_ch=ref_ch)
-        w = mvdr_weights(Rnn, d)
+        w = mvdr_weights(Rnn, d, ref_ch=ref_ch)
         proj = np.sum(np.conjugate(_to_numpy(w)) * _to_numpy(d), axis=1)
         constraint_error = float(np.max(np.abs(proj - 1.0)))
 

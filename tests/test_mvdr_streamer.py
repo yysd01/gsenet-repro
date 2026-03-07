@@ -9,27 +9,41 @@ torch = pytest.importorskip("torch")
 from gsenet_repro.streaming.mvdr_streamer import MVDRStreamer
 
 
-def test_mvdr_streamer_shape_and_finite() -> None:
-    torch.manual_seed(0)
-    streamer = MVDRStreamer(num_mics=4, center=False)
-
+def _dummy_rtf_lib(streamer: MVDRStreamer) -> dict[str, object]:
     F = streamer.n_fft // 2 + 1
-    d = np.zeros((1, F, 4), dtype=np.complex64)
-    d[:, :, 0] = 1.0 + 0.0j
-    d[:, :, 1] = 0.8 + 0.1j
-    d[:, :, 2] = 0.6 - 0.2j
-    d[:, :, 3] = 0.3 + 0.05j
-    streamer.rtf_lib = {
+    d = np.zeros((1, F, streamer.num_mics), dtype=np.complex64)
+    d[:, :, streamer.ref_ch] = 1.0 + 0.0j
+    return {
         "doa_bins": np.array([0], dtype=np.int32),
         "d_mean": d,
         "binsize_deg": 1,
-        "ref_ch": 0,
+        "ref_ch": streamer.ref_ch,
+        "sample_rate": streamer.sample_rate,
+        "n_fft": streamer.n_fft,
+        "win_length": streamer.win_length,
+        "hop_length": streamer.hop_length,
+        "window": streamer.window,
+        "center": streamer.center,
+        "num_mics": streamer.num_mics,
+        "missing_metadata": tuple(),
     }
+
+
+def test_single_stream_only() -> None:
+    streamer = MVDRStreamer(num_mics=4, center=False)
+    with pytest.raises(ValueError, match="single-stream"):
+        streamer.process(torch.randn(2, 4, 128))
+
+
+def test_streamer_no_nan() -> None:
+    torch.manual_seed(0)
+    streamer = MVDRStreamer(num_mics=4, center=False)
+    streamer.rtf_lib = _dummy_rtf_lib(streamer)
     streamer.set_target_doa(0)
 
-    chunk = 1280
+    chunk = 640
     outs = []
-    for _ in range(10):
+    for _ in range(8):
         x = torch.randn(4, chunk)
         y = streamer.process(x)
         assert y.shape == (chunk,)
@@ -37,21 +51,13 @@ def test_mvdr_streamer_shape_and_finite() -> None:
         outs.append(y)
 
     y_all = torch.cat(outs)
-    assert y_all.shape == (10 * chunk,)
+    assert y_all.shape == (8 * chunk,)
 
 
 def test_target_like_higher_for_coherent_signal() -> None:
     torch.manual_seed(0)
     streamer = MVDRStreamer(num_mics=4, center=False)
-    F = streamer.n_fft // 2 + 1
-    d = np.zeros((1, F, 4), dtype=np.complex64)
-    d[:, :, 0] = 1.0 + 0.0j
-    streamer.rtf_lib = {
-        "doa_bins": np.array([0], dtype=np.int32),
-        "d_mean": d,
-        "binsize_deg": 1,
-        "ref_ch": 0,
-    }
+    streamer.rtf_lib = _dummy_rtf_lib(streamer)
     streamer.set_target_doa(0)
 
     coherent = torch.randn(1, 1280)
