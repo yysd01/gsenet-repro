@@ -5,9 +5,9 @@ import argparse
 import csv
 import importlib.util
 import json
-from pathlib import Path
-import sys
 import re
+import sys
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -27,15 +27,15 @@ from torch.utils.data import DataLoader
 
 from gsenet_repro.config import resolve_config
 from gsenet_repro.data.paper_dataset import PaperLikeDataset
-from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from gsenet_repro.data.real_dataset import RealMultichannelDataset
+from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
+from gsenet_repro.io.audio import safe_write_wav
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
-from gsenet_repro.io.audio import safe_write_wav
 
 
 def _normalize_audio(x: np.ndarray, peak: float = 0.99) -> np.ndarray:
@@ -103,14 +103,12 @@ def _count_parameters(model: torch.nn.Module) -> int:
 
 
 def _format_stft_params(stft_params: dict) -> str:
-    return (
-        "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
-            n_fft=stft_params.get("n_fft"),
-            win_length=stft_params.get("win_length"),
-            hop_length=stft_params.get("hop_length"),
-            window=stft_params.get("window", "hann"),
-            center=stft_params.get("center", False),
-        )
+    return "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
+        n_fft=stft_params.get("n_fft"),
+        win_length=stft_params.get("win_length"),
+        hop_length=stft_params.get("hop_length"),
+        window=stft_params.get("window", "hann"),
+        center=stft_params.get("center", False),
     )
 
 
@@ -208,10 +206,14 @@ def main() -> None:
     model_stft = config["stft_model"]
     loss_stft = config["stft_loss"]
 
-    out_dir = Path(args.out_dir) if args.out_dir is not None else ckpt_path.parents[1] / "eval_outputs"
+    out_dir = (
+        Path(args.out_dir) if args.out_dir is not None else ckpt_path.parents[1] / "eval_outputs"
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     run_dir = ckpt_path.parents[1]
-    wav_root = Path(args.wav_dir) if args.wav_dir is not None else run_dir / "artifacts" / "test_wavs"
+    wav_root = (
+        Path(args.wav_dir) if args.wav_dir is not None else run_dir / "artifacts" / "test_wavs"
+    )
     wav_split_dir = wav_root / "test"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -353,7 +355,9 @@ def main() -> None:
                     }
                     safe_write_wav(write_paths["path_y1"], y1_np, sample_rate, norm=args.wav_norm)
                     safe_write_wav(write_paths["path_y0"], y0_np, sample_rate, norm=args.wav_norm)
-                    safe_write_wav(write_paths["path_yhat"], yhat_np, sample_rate, norm=args.wav_norm)
+                    safe_write_wav(
+                        write_paths["path_yhat"], yhat_np, sample_rate, norm=args.wav_norm
+                    )
                     safe_write_wav(write_paths["path_yt"], yt_np, sample_rate, norm=args.wav_norm)
                     if args.save_mic_4ch and x_mics is not None:
                         mic_np = x_mics[idx].detach().cpu().numpy()

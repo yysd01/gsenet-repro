@@ -81,6 +81,7 @@ def _prepare_dummy_input(target_sr: int):
 
 def _resolve_mic_positions(cfg: dict, override_json: str | None, channels: int):
     import numpy as np
+
     from gsenet_repro.pipeline.mcwf_frontend import DEFAULT_MIC_POSITIONS
 
     if override_json is not None:
@@ -120,7 +121,9 @@ def _diag_gates(args: argparse.Namespace) -> None:
     else:
         x_mics, sample_rate, wav_path = _prepare_dummy_input(target_sr=sample_rate)
         if x_mics.shape[0] > num_mics:
-            print(f"WARNING: dummy wav has {x_mics.shape[0]} channels; truncating to first {num_mics}")
+            print(
+                f"WARNING: dummy wav has {x_mics.shape[0]} channels; truncating to first {num_mics}"
+            )
             x_mics = x_mics[:num_mics]
         source_msg = f"dummy:{wav_path}"
 
@@ -156,7 +159,9 @@ def _diag_gates(args: argparse.Namespace) -> None:
     if not np.any(on_target):
         print("WARNING: no target frames detected (target_gate > 0.5).")
     if noise_on_target > 0.01:
-        print("WARNING: noise_gate_on_target_mean > 0.01; R_nn may be contaminated and MVDR can be unstable.")
+        print(
+            "WARNING: noise_gate_on_target_mean > 0.01; R_nn may be contaminated and MVDR can be unstable."
+        )
 
     head = max(0, int(args.print_head))
     print(f"first_{head}_frames=(target_gate, noise_gate)")
@@ -201,30 +206,66 @@ def build_parser() -> argparse.ArgumentParser:
         ("mvdr", "Run MVDR smoke test (underlying script: scripts/smoke_mvdr.py)."),
         ("train", "Run full training wrapper (underlying script: scripts/train.py)."),
         ("test", "Run evaluation wrapper (underlying script: scripts/test.py)."),
-        ("report", "Generate paper-like report (underlying script: scripts/report_paper_like_full.py)."),
-        ("stream-mvdr", "Run online MVDR streamer over a 4ch wav (underlying script: scripts/stream_mvdr.py)."),
+        (
+            "report",
+            "Generate paper-like report (underlying script: scripts/report_paper_like_full.py).",
+        ),
+        (
+            "stream-mvdr",
+            "Run online MVDR streamer over a 4ch wav (underlying script: scripts/stream_mvdr.py).",
+        ),
     ):
         sub = subparsers.add_parser(cmd, help=help_text, description=help_text)
-        sub.add_argument("extra_args", nargs=argparse.REMAINDER, help="Extra args forwarded to underlying script.")
+        sub.add_argument(
+            "extra_args",
+            nargs=argparse.REMAINDER,
+            help="Extra args forwarded to underlying script.",
+        )
 
     diag = subparsers.add_parser(
         "diag-gates",
         help="Estimate target/noise gates on 4ch wav (or dummy data), print stats, and export gates + y0/y1.",
         description="Run gate diagnostics for MVDR front-end stability checks.",
     )
-    diag.add_argument("--wav", type=str, default=None, help="Path to input multi-channel wav. If omitted, use dummy data.")
-    diag.add_argument("--config", type=str, default=None, help="Optional TOML config path resolved via resolve_config().")
-    diag.add_argument("--ref-ch", type=int, default=None, help="Override reference microphone channel index.")
-    diag.add_argument("--sample-rate", type=int, default=None, help="Override sample rate used for diagnostics.")
+    diag.add_argument(
+        "--wav",
+        type=str,
+        default=None,
+        help="Path to input multi-channel wav. If omitted, use dummy data.",
+    )
+    diag.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Optional TOML config path resolved via resolve_config().",
+    )
+    diag.add_argument(
+        "--ref-ch", type=int, default=None, help="Override reference microphone channel index."
+    )
+    diag.add_argument(
+        "--sample-rate", type=int, default=None, help="Override sample rate used for diagnostics."
+    )
     diag.add_argument(
         "--mic-positions-json",
         type=str,
         default=None,
         help='Override mic positions as JSON string, e.g. "[[0,0,0],[0.04,0,0],[0.01,0.035,0],[-0.03,0.01,0]]".',
     )
-    diag.add_argument("--export-dir", type=str, default="artifacts/gate_diag", help="Output directory for gates.npz, y0.wav, y1.wav.")
-    diag.add_argument("--seconds", type=float, default=5.0, help="Only process the first N seconds.")
-    diag.add_argument("--print-head", type=int, default=10, help="Print first N frames of (target_gate, noise_gate).")
+    diag.add_argument(
+        "--export-dir",
+        type=str,
+        default="artifacts/gate_diag",
+        help="Output directory for gates.npz, y0.wav, y1.wav.",
+    )
+    diag.add_argument(
+        "--seconds", type=float, default=5.0, help="Only process the first N seconds."
+    )
+    diag.add_argument(
+        "--print-head",
+        type=int,
+        default=10,
+        help="Print first N frames of (target_gate, noise_gate).",
+    )
 
     prep = subparsers.add_parser(
         "prep-oppo-y0",
@@ -244,12 +285,20 @@ def build_parser() -> argparse.ArgumentParser:
 def _print_short_help(parser: argparse.ArgumentParser) -> None:
     parser.print_help()
     print("\nCommon examples:")
-    print("  python scripts/run.py diag-gates --wav path/to/4ch.wav --config configs/paper_like_4mic.toml")
-    print("  python scripts/run.py prep-oppo-y0 --dataset-root /path/to/oppo --split train --out-root artifacts/oppo_y0")
+    print(
+        "  python scripts/run.py diag-gates --wav path/to/4ch.wav --config configs/paper_like_4mic.toml"
+    )
+    print(
+        "  python scripts/run.py prep-oppo-y0 --dataset-root /path/to/oppo --split train --out-root artifacts/oppo_y0"
+    )
     print("  python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000")
     print("  python scripts/run.py test -- --run_dir artifacts/runs/<run_id>")
-    print("  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0")
-    print("  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0 --mode lcmv --lcmv-span-deg 30 --lcmv-k 3")
+    print(
+        "  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0"
+    )
+    print(
+        "  python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0 --mode lcmv --lcmv-span-deg 30 --lcmv-k 3"
+    )
 
 
 def main() -> None:

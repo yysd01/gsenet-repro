@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -74,7 +74,9 @@ def main() -> None:
         yt_list.append(yt)
         background_meta = background_config["metadata"][0] if background_config["metadata"] else {}
         meta = params.as_dict()
-        meta.update({"noise_meta": n_meta, "interf_meta": i_meta, "background_meta": background_meta})
+        meta.update(
+            {"noise_meta": n_meta, "interf_meta": i_meta, "background_meta": background_meta}
+        )
         meta_list.append(meta)
         noise_pow = np.mean(n**2) + np.mean(i**2)
         signal_pow = np.mean(s**2) + 1e-8

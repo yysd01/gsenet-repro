@@ -1,4 +1,5 @@
 """Paper-scale GSENet implementation aligned with arXiv:2303.07486."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,7 +11,6 @@ from torch.nn import functional as F
 
 from gsenet_repro.dsp import MODEL_STFT
 from gsenet_repro.dsp.torch_stft import torch_istft, torch_stft
-
 
 PAPER_ENCODER_BLOCKS: tuple[dict[str, object], ...] = (
     {"cin": 16, "cout": 32, "stime": 1, "sfreq": 2, "dtime": False},
@@ -38,7 +38,9 @@ class BlockConfig:
     dtime: bool
 
 
-def _to_block_configs(blocks: Optional[Iterable[Dict[str, object]]], fallback: Iterable[dict[str, object]]) -> List[BlockConfig]:
+def _to_block_configs(
+    blocks: Optional[Iterable[Dict[str, object]]], fallback: Iterable[dict[str, object]]
+) -> List[BlockConfig]:
     selected = blocks if blocks is not None else fallback
     configs: List[BlockConfig] = []
     for block in selected:
@@ -129,9 +131,7 @@ class EncoderBlock(nn.Module):
             kernel_size=(3, 3),
             dilation=(1, 9),
         )
-        self.time_dilation = (
-            TimeDilationBlock(config.cout, slope) if config.dtime else None
-        )
+        self.time_dilation = TimeDilationBlock(config.cout, slope) if config.dtime else None
         self.downsample = CausalConv2d(
             config.cout,
             config.cout,
@@ -161,9 +161,7 @@ class DecoderBlock(nn.Module):
             kernel_size=(3, 3),
             dilation=(1, 9),
         )
-        self.time_dilation = (
-            TimeDilationBlock(config.cout, slope) if config.dtime else None
-        )
+        self.time_dilation = TimeDilationBlock(config.cout, slope) if config.dtime else None
         self.activation = nn.LeakyReLU(slope)
 
     @staticmethod

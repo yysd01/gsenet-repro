@@ -76,10 +76,7 @@ def _scan_root_dir(root_dir: Path, num_mics: int) -> List[Dict[str, str]]:
         if not mic_dir.exists():
             raise FileNotFoundError(f"Mic directory not found: {mic_dir}")
 
-    mic_sets = [
-        {path.name for path in mic_dir.glob("*.wav")}
-        for mic_dir in mic_dirs
-    ]
+    mic_sets = [{path.name for path in mic_dir.glob("*.wav")} for mic_dir in mic_dirs]
     target_set = {path.name for path in target_dir.glob("*.wav")}
     common = set.intersection(*mic_sets, target_set)
     if not common:

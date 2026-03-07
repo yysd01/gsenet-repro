@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from gsenet_repro.dsp.mcwf import apply_mcwf_mask, mcwf
-from gsenet_repro.dsp.stft import stft, istft, MODEL_STFT
+from gsenet_repro.dsp.stft import MODEL_STFT, istft, stft
 from gsenet_repro.eval.metrics import snr_db
 
 
@@ -75,8 +75,8 @@ def test_mcwf_gain_controls_gsenet_frontend():
 
     import torch
 
-    from gsenet_repro.models.gsenet_torch import MinimalGSENet
     from gsenet_repro.dsp.torch_stft import torch_stft
+    from gsenet_repro.models.gsenet_torch import MinimalGSENet
 
     torch.manual_seed(0)
 

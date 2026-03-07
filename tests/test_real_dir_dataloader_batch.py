@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 
 import pytest
+
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     import torch
     from torch.utils.data import DataLoader
@@ -12,7 +13,6 @@ else:  # pragma: no cover
 
 from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from scripts._legacy.make_dummy_real_dir_dataset import make_dummy_real_dir_dataset
-
 
 torch_available = torch is not None
 

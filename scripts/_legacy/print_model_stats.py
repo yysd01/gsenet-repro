@@ -24,14 +24,12 @@ def _count_parameters(model: torch.nn.Module) -> int:
 
 
 def _format_stft_params(stft_params: dict) -> str:
-    return (
-        "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
-            n_fft=stft_params.get("n_fft"),
-            win_length=stft_params.get("win_length"),
-            hop_length=stft_params.get("hop_length"),
-            window=stft_params.get("window", "hann"),
-            center=stft_params.get("center", False),
-        )
+    return "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
+        n_fft=stft_params.get("n_fft"),
+        win_length=stft_params.get("win_length"),
+        hop_length=stft_params.get("hop_length"),
+        window=stft_params.get("window", "hann"),
+        center=stft_params.get("center", False),
     )
 
 

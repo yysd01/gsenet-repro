@@ -193,7 +193,9 @@ def load_rtf_lib(path: str | Path) -> dict[str, Any]:
             "n_fft": int(data["n_fft"]),
             "win_length": int(data["win_length"]),
             "hop_length": int(data["hop_length"]),
-            "window": str(data["window"].item() if np.asarray(data["window"]).shape == () else data["window"]),
+            "window": str(
+                data["window"].item() if np.asarray(data["window"]).shape == () else data["window"]
+            ),
             "center": bool(data["center"]),
             "num_mics": int(data["num_mics"]),
             "ref_ch": int(data["ref_ch"]),

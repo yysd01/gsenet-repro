@@ -1,4 +1,5 @@
 """Online stateful single-stream MVDR/LCMV streamer with target-likeness gated Rnn EMA."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -67,7 +68,9 @@ class MVDRStreamer:
 
         self._window_cpu = torch.hann_window(win_length, periodic=False)
         self._freqs_hz = torch.linspace(0.0, sample_rate / 2.0, n_fft // 2 + 1)
-        self._band_mask_cpu = (self._freqs_hz >= float(coh_fmin_hz)) & (self._freqs_hz <= float(coh_fmax_hz))
+        self._band_mask_cpu = (self._freqs_hz >= float(coh_fmin_hz)) & (
+            self._freqs_hz <= float(coh_fmax_hz)
+        )
 
         self.rtf_lib: Optional[dict[str, np.ndarray]] = None
         self.target_doa: Optional[int] = None
@@ -137,14 +140,18 @@ class MVDRStreamer:
 
     def _init_output_fifo(self, batch: int, device: torch.device, dtype: torch.dtype) -> None:
         if self._output_fifo is None:
-            self._output_fifo = torch.zeros((batch, max(0, self.algorithmic_delay_samples)), device=device, dtype=dtype)
+            self._output_fifo = torch.zeros(
+                (batch, max(0, self.algorithmic_delay_samples)), device=device, dtype=dtype
+            )
 
     def _ensure_state(self, batch: int, device: torch.device, dtype: torch.dtype) -> None:
         if self._Rnn is None:
             eye = torch.eye(self.num_mics, dtype=torch.complex64, device=device)
             self._Rnn = eye.unsqueeze(0).repeat(self.n_fft // 2 + 1, 1, 1)
         if self._d is None:
-            d = torch.zeros((self.n_fft // 2 + 1, self.num_mics), dtype=torch.complex64, device=device)
+            d = torch.zeros(
+                (self.n_fft // 2 + 1, self.num_mics), dtype=torch.complex64, device=device
+            )
             d[:, self.ref_ch] = 1.0 + 0.0j
             self._d = d
         else:
@@ -168,7 +175,9 @@ class MVDRStreamer:
 
         try:
             d_list = [
-                torch.from_numpy(get_d_from_lib(self.rtf_lib, a).astype(np.complex64)).to(self._Rnn.device)
+                torch.from_numpy(get_d_from_lib(self.rtf_lib, a).astype(np.complex64)).to(
+                    self._Rnn.device
+                )
                 for a in self._constraint_angles(self.target_doa)
             ]
             D = torch.stack(d_list, dim=-1)
@@ -195,7 +204,9 @@ class MVDRStreamer:
             raise ValueError("batch size must remain constant")
 
         if self._input_buffer is None:
-            self._input_buffer = torch.zeros((batch, self.num_mics, 0), device=x_chunk.device, dtype=x_chunk.dtype)
+            self._input_buffer = torch.zeros(
+                (batch, self.num_mics, 0), device=x_chunk.device, dtype=x_chunk.dtype
+            )
         self._input_buffer = torch.cat([self._input_buffer, x_chunk], dim=-1)
 
         self._ensure_state(batch, x_chunk.device, x_chunk.dtype)
@@ -217,11 +228,16 @@ class MVDRStreamer:
             x_norm = torch.sum(x_fc.conj() * x_fc, dim=-1).real
             coh = (proj.abs() ** 2) / (d_norm * x_norm + 1e-8)
             score = coh[band_mask].mean() if band_mask.any() else coh.mean()
-            target_like = torch.clamp((score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0)
+            target_like = torch.clamp(
+                (score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0
+            )
             noise_gate = 1.0 - target_like
 
             xxh = x_fc.unsqueeze(-1) * x_fc.conj().unsqueeze(-2)
-            self._Rnn = self.rnn_alpha * self._Rnn + (1.0 - self.rnn_alpha) * noise_gate.to(torch.float32) * xxh
+            self._Rnn = (
+                self.rnn_alpha * self._Rnn
+                + (1.0 - self.rnn_alpha) * noise_gate.to(torch.float32) * xxh
+            )
             self._Rnn = torch.as_tensor(
                 diag_load(hermitian(self._Rnn), self.diag_load_value),
                 dtype=self._Rnn.dtype,
@@ -233,7 +249,9 @@ class MVDRStreamer:
             self._frame_counter += 1
 
             y_frame_f = torch.einsum("fc,bfc->bf", self._w.conj(), spectrum)
-            y_time = torch.fft.irfft(y_frame_f, n=self.n_fft, dim=-1)[..., : self.win_length] * window
+            y_time = (
+                torch.fft.irfft(y_frame_f, n=self.n_fft, dim=-1)[..., : self.win_length] * window
+            )
 
             self._ola_buffer[:, : self.win_length] += y_time
             self._ola_window_sum[:, : self.win_length] += window.pow(2)
@@ -243,22 +261,46 @@ class MVDRStreamer:
             hop_out = torch.where(hop_sum > 1e-8, hop_audio / hop_sum, torch.zeros_like(hop_audio))
             outputs.append(hop_out)
 
-            self._ola_buffer = torch.cat([self._ola_buffer[:, self.hop_length :], torch.zeros((batch, self.hop_length), device=x_chunk.device, dtype=x_chunk.dtype)], dim=-1)
-            self._ola_window_sum = torch.cat([self._ola_window_sum[:, self.hop_length :], torch.zeros((batch, self.hop_length), device=x_chunk.device, dtype=x_chunk.dtype)], dim=-1)
+            self._ola_buffer = torch.cat(
+                [
+                    self._ola_buffer[:, self.hop_length :],
+                    torch.zeros(
+                        (batch, self.hop_length), device=x_chunk.device, dtype=x_chunk.dtype
+                    ),
+                ],
+                dim=-1,
+            )
+            self._ola_window_sum = torch.cat(
+                [
+                    self._ola_window_sum[:, self.hop_length :],
+                    torch.zeros(
+                        (batch, self.hop_length), device=x_chunk.device, dtype=x_chunk.dtype
+                    ),
+                ],
+                dim=-1,
+            )
             self._input_buffer = self._input_buffer[:, :, self.hop_length :]
 
             self.last_coh = coh.detach().cpu()
             self.last_score = score.detach().cpu()
             self.last_target_like = target_like.detach().cpu()
 
-        new_audio = torch.cat(outputs, dim=-1) if outputs else torch.zeros((batch, 0), device=x_chunk.device, dtype=x_chunk.dtype)
+        new_audio = (
+            torch.cat(outputs, dim=-1)
+            if outputs
+            else torch.zeros((batch, 0), device=x_chunk.device, dtype=x_chunk.dtype)
+        )
         self._output_fifo = torch.cat([self._output_fifo, new_audio], dim=-1)
 
         if self._output_fifo.shape[1] >= chunk_len:
             out = self._output_fifo[:, :chunk_len]
             self._output_fifo = self._output_fifo[:, chunk_len:]
         else:
-            pad = torch.zeros((batch, chunk_len - self._output_fifo.shape[1]), device=x_chunk.device, dtype=x_chunk.dtype)
+            pad = torch.zeros(
+                (batch, chunk_len - self._output_fifo.shape[1]),
+                device=x_chunk.device,
+                dtype=x_chunk.dtype,
+            )
             out = torch.cat([self._output_fifo, pad], dim=-1)
             self._output_fifo = torch.zeros((batch, 0), device=x_chunk.device, dtype=x_chunk.dtype)
 

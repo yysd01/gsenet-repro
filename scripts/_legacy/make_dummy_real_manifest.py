@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import csv
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -39,7 +39,9 @@ def main() -> None:
     for idx in range(num_samples):
         s = rng.normal(size=length).astype(np.float32)
         n, _ = generate_noise_mix(rng, length, sample_rate)
-        i, _ = generate_noise_mix(rng, length, sample_rate, noise_types=("speech", "babble", "pink"))
+        i, _ = generate_noise_mix(
+            rng, length, sample_rate, noise_types=("speech", "babble", "pink")
+        )
         rir, rir_anechoic = generate_rir_3src_4mic(rng)
         params = sample_paper_params(rng, global_gain=0.8)
         y_mics, yt = synthesize_y_mics_yt(

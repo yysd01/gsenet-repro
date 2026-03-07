@@ -36,7 +36,17 @@ def test_rtf_lib_metadata_roundtrip(tmp_path: Path) -> None:
     save_rtf_lib(path, src)
     loaded = load_rtf_lib(path)
 
-    for key in ("sample_rate", "n_fft", "win_length", "hop_length", "window", "center", "num_mics", "ref_ch", "binsize_deg"):
+    for key in (
+        "sample_rate",
+        "n_fft",
+        "win_length",
+        "hop_length",
+        "window",
+        "center",
+        "num_mics",
+        "ref_ch",
+        "binsize_deg",
+    ):
         assert loaded[key] == src[key]
 
 

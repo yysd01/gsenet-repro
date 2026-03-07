@@ -1,4 +1,5 @@
 """Core utilities for GSENet reproduction scaffolding."""
+
 from __future__ import annotations
 
 import numpy as np

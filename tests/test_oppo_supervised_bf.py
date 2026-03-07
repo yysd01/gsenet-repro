@@ -41,7 +41,13 @@ def test_oppo_triplet_and_beamform(tmp_path: Path) -> None:
         noise4=item["noise"],
         noisy4=item["noisy"],
         src_doas=item["src_doas"],
-        stft_cfg={"n_fft": 256, "win_length": 256, "hop_length": 128, "window": "hann", "center": False},
+        stft_cfg={
+            "n_fft": 256,
+            "win_length": 256,
+            "hop_length": 128,
+            "window": "hann",
+            "center": False,
+        },
     )
     assert y0.ndim == 1 and y1.ndim == 1
     assert y0.shape[0] == y1.shape[0] == item["clean"].shape[1]

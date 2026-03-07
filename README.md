@@ -26,6 +26,24 @@ python -m pip install -r requirements.txt -r requirements-torch.txt
 
 未安装 torch 时，torch 相关功能与测试会自动跳过。
 
+
+## 开发者指南（格式化与提交前检查）
+
+推荐在本地启用 `pre-commit`：
+
+```bash
+python -m pip install pre-commit ruff
+pre-commit install
+pre-commit run --all-files
+```
+
+其中会自动执行：
+
+- `ruff check`（基础 lint）
+- `ruff format`（统一格式化）
+- `tools/sanitize_unicode.py --check`（阻止隐藏/双向 Unicode 字符回归）
+- `check-ast`、`end-of-file-fixer`、`trailing-whitespace`
+
 ## STFT 参数约定
 
 论文中模型前端与训练损失使用不同的 STFT 参数：

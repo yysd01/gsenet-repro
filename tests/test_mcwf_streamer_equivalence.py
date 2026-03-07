@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-
 torch = pytest.importorskip("torch")
 
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0

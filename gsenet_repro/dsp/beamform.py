@@ -96,7 +96,9 @@ def lcmv_weights(
     return w
 
 
-def apply_beamformer(X: np.ndarray | "torch.Tensor", w: np.ndarray | "torch.Tensor") -> np.ndarray | "torch.Tensor":
+def apply_beamformer(
+    X: np.ndarray | "torch.Tensor", w: np.ndarray | "torch.Tensor"
+) -> np.ndarray | "torch.Tensor":
     if _is_torch(X) and _is_torch(w):
         return torch.einsum("fc,ftc->ft", w.conj(), X)
     return np.einsum("fc,ftc->ft", np.conjugate(_to_numpy(w)), _to_numpy(X))

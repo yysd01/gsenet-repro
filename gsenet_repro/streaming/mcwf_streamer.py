@@ -1,4 +1,5 @@
 """Frame-wise streaming MCWF implementation."""
+
 from __future__ import annotations
 
 from collections import deque
@@ -196,6 +197,8 @@ class MCWFStreamer:
                 dtype=x_chunk.dtype,
             )
             out = torch.cat([self._output_fifo, pad], dim=-1)
-            self._output_fifo = torch.zeros((batch_size, 0), device=x_chunk.device, dtype=x_chunk.dtype)
+            self._output_fifo = torch.zeros(
+                (batch_size, 0), device=x_chunk.device, dtype=x_chunk.dtype
+            )
 
         return out[0] if squeeze else out

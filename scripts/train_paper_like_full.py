@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.util
-import json
 import random
 import sys
 import time
@@ -26,16 +25,16 @@ import torch
 from torch.utils.data import DataLoader
 
 from gsenet_repro.config import resolve_config, resolve_run_dir, save_resolved_config
-from gsenet_repro.data.paper_dataset import PaperLikeDataset
-from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
-from gsenet_repro.data.real_dataset import RealMultichannelDataset
 from gsenet_repro.data.oppo_triplet_dataset import OppoPrecomputedY0Dataset
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
+from gsenet_repro.data.paper_dataset import PaperLikeDataset
+from gsenet_repro.data.real_dataset import RealMultichannelDataset
+from gsenet_repro.data.real_fourmic_dir_dataset import RealFourMicDirDataset
 from gsenet_repro.losses.stft_loss_torch import stft_magnitude_loss
 from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
+from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
 try:  # pragma: no cover - optional tqdm
     from tqdm import tqdm
@@ -72,14 +71,12 @@ def _count_parameters(model: torch.nn.Module) -> int:
 
 
 def _format_stft_params(stft_params: Dict[str, object]) -> str:
-    return (
-        "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
-            n_fft=stft_params.get("n_fft"),
-            win_length=stft_params.get("win_length"),
-            hop_length=stft_params.get("hop_length"),
-            window=stft_params.get("window", "hann"),
-            center=stft_params.get("center", False),
-        )
+    return "n_fft={n_fft} win_length={win_length} hop_length={hop_length} window={window} center={center}".format(
+        n_fft=stft_params.get("n_fft"),
+        win_length=stft_params.get("win_length"),
+        hop_length=stft_params.get("hop_length"),
+        window=stft_params.get("window", "hann"),
+        center=stft_params.get("center", False),
     )
 
 
@@ -203,7 +200,9 @@ def _make_eval_batch(
     return next(iter(loader)), dataset
 
 
-def _log_real_dir_dataset(dataset: RealFourMicDirDataset, split: str, data_config: Dict[str, object]) -> None:
+def _log_real_dir_dataset(
+    dataset: RealFourMicDirDataset, split: str, data_config: Dict[str, object]
+) -> None:
     resample = bool(data_config.get("resample", True))
     print(
         "RealFourMicDirDataset split={split} root={root} samples={samples} "
@@ -449,9 +448,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             lr=train_config["lr"],
         )
     )
-    print(
-        "eval split=valid samples={samples}".format(samples=_dataset_size(eval_dataset))
-    )
+    print("eval split=valid samples={samples}".format(samples=_dataset_size(eval_dataset)))
     print(
         "model={name} params={params:.3f}M".format(
             name=model_name, params=_count_parameters(model) / 1e6
