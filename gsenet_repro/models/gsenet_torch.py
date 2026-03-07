@@ -1,4 +1,5 @@
 """Minimal offline GSENet-like torch model."""
+
 from __future__ import annotations
 
 from typing import Dict, Optional

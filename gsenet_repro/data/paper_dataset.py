@@ -42,9 +42,7 @@ class PaperLikeDataset(IterableDataset):
         mic_positions: list[list[float]] | None = None,
     ) -> None:
         if torch is None:
-            raise ImportError(
-                "PaperLikeDataset requires torch. Install requirements-torch.txt."
-            )
+            raise ImportError("PaperLikeDataset requires torch. Install requirements-torch.txt.")
         super().__init__()
         self.sample_rate = int(sample_rate)
         self.segment_seconds = float(segment_seconds)

@@ -7,7 +7,13 @@ import numpy as np
 
 from gsenet_repro.dsp.stft import istft as np_istft
 from gsenet_repro.dsp.stft import stft as np_stft
-from gsenet_repro.dsp.beamform import apply_beamformer, diag_load, hermitian, lcmv_weights, mvdr_weights
+from gsenet_repro.dsp.beamform import (
+    apply_beamformer,
+    diag_load,
+    hermitian,
+    lcmv_weights,
+    mvdr_weights,
+)
 from gsenet_repro.dsp.rtf_lib import (
     build_doa_rtf_library as _build_doa_rtf_library,
     get_d_from_lib,
@@ -36,7 +42,9 @@ def _to_numpy(x: np.ndarray | "torch.Tensor") -> np.ndarray:
     return np.asarray(x)
 
 
-def stft_4ch(wav: np.ndarray | "torch.Tensor", stft_cfg: dict[str, Any]) -> np.ndarray | "torch.Tensor":
+def stft_4ch(
+    wav: np.ndarray | "torch.Tensor", stft_cfg: dict[str, Any]
+) -> np.ndarray | "torch.Tensor":
     x = _to_numpy(wav).astype(np.float32)
     if x.ndim != 2 or x.shape[0] != 4:
         raise ValueError(f"Expected wav shape (4,T), got {x.shape}")
@@ -68,7 +76,9 @@ def stft_4ch(wav: np.ndarray | "torch.Tensor", stft_cfg: dict[str, Any]) -> np.n
     ).astype(np.complex64)
 
 
-def estimate_rnn_from_noise(Xn: np.ndarray | "torch.Tensor", delta: float = 1e-2) -> np.ndarray | "torch.Tensor":
+def estimate_rnn_from_noise(
+    Xn: np.ndarray | "torch.Tensor", delta: float = 1e-2
+) -> np.ndarray | "torch.Tensor":
     X = _to_numpy(Xn)
     if X.ndim != 3:
         raise ValueError("Xn must be (F,T,C)")
@@ -124,8 +134,16 @@ def build_doa_rtf_library(
     sample_rate: int = 16000,
 ) -> dict[str, Any]:
     if stft_cfg is None:
-        stft_cfg = {"n_fft": 256, "win_length": 256, "hop_length": 128, "window": "hann", "center": False}
-    lib = _build_doa_rtf_library(train_root=train_root, binsize_deg=binsize_deg, stft_cfg=stft_cfg, ref_ch=ref_ch)
+        stft_cfg = {
+            "n_fft": 256,
+            "win_length": 256,
+            "hop_length": 128,
+            "window": "hann",
+            "center": False,
+        }
+    lib = _build_doa_rtf_library(
+        train_root=train_root, binsize_deg=binsize_deg, stft_cfg=stft_cfg, ref_ch=ref_ch
+    )
     lib["sample_rate"] = int(lib.get("sample_rate", sample_rate))
     out_dir = Path(artifact_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -171,7 +189,15 @@ def beamform_sample(
     n_fft = int(stft_cfg["n_fft"])
     hop = int(stft_cfg["hop_length"])
     win = int(stft_cfg["win_length"])
-    y0 = np_istft(Y, n_fft=n_fft, win_length=win, hop_length=hop, window="hann", center=False, length=_to_numpy(noisy4).shape[1]).astype(np.float32)
+    y0 = np_istft(
+        Y,
+        n_fft=n_fft,
+        win_length=win,
+        hop_length=hop,
+        window="hann",
+        center=False,
+        length=_to_numpy(noisy4).shape[1],
+    ).astype(np.float32)
     y1 = _to_numpy(noisy4)[ref_ch].astype(np.float32)
     min_len = min(y0.shape[0], y1.shape[0])
     y0 = y0[:min_len]

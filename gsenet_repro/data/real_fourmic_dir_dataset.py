@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
-import warnings
 
 import numpy as np
 import soundfile as sf
@@ -24,7 +24,9 @@ class _AudioInfo:
 
 def _load_audio_info(path: Path) -> _AudioInfo:
     info = sf.info(str(path))
-    return _AudioInfo(sample_rate=int(info.samplerate), frames=int(info.frames), channels=int(info.channels))
+    return _AudioInfo(
+        sample_rate=int(info.samplerate), frames=int(info.frames), channels=int(info.channels)
+    )
 
 
 def _ensure_length(signal: np.ndarray, target_length: int) -> np.ndarray:

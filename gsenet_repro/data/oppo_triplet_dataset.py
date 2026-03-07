@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import soundfile as sf
+
 try:
     import torch
     from torch.utils.data import Dataset
@@ -13,6 +14,7 @@ except ImportError:  # pragma: no cover
 
     class Dataset:  # type: ignore[no-redef]
         pass
+
 
 from gsenet_repro.dsp.supervised_bf import parse_doas_from_filename
 
@@ -159,7 +161,9 @@ class OppoPrecomputedY0Dataset(Dataset):
             raise FileNotFoundError(f"Precomputed y0 not found: {y0_path}")
         y0_wav, sr = sf.read(str(y0_path), always_2d=True, dtype="float32")
         if sr != self.triplet.sample_rate:
-            raise ValueError(f"Expected sample_rate={self.triplet.sample_rate}, got {sr} for {y0_path}")
+            raise ValueError(
+                f"Expected sample_rate={self.triplet.sample_rate}, got {sr} for {y0_path}"
+            )
         y0 = y0_wav[:, 0].astype(np.float32)
 
         y1 = noisy[self.ref_mic_index]

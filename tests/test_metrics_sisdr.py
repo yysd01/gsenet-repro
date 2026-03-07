@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-
 torch = pytest.importorskip("torch")
 
 from gsenet_repro.metrics.metrics_torch import batch_sisdr, sisdr

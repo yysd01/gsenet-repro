@@ -307,7 +307,9 @@ def generate_rir_3src_nmic(
 
     for src_idx in range(3):
         base_delay = int(rng.integers(int(0.004 * fs), int(0.015 * fs)))
-        offsets = _sample_direct_offsets(rng, num_mics=num_mics, max_direct_delay_diff=max_direct_delay_diff)
+        offsets = _sample_direct_offsets(
+            rng, num_mics=num_mics, max_direct_delay_diff=max_direct_delay_diff
+        )
         for mic_idx in range(num_mics):
             delay = max(0, base_delay + int(offsets[mic_idx]))
             direct_delays[src_idx, mic_idx] = delay

@@ -146,7 +146,11 @@ def mcwf_make_y0(
     hop_length = int(params["hop_length"])
     sample_rate = 16000 if sample_rate is None else int(sample_rate)
 
-    positions = DEFAULT_MIC_POSITIONS if mic_positions is None else np.asarray(mic_positions, dtype=np.float32)
+    positions = (
+        DEFAULT_MIC_POSITIONS
+        if mic_positions is None
+        else np.asarray(mic_positions, dtype=np.float32)
+    )
     if positions.ndim != 2 or positions.shape[1] != 3:
         raise ValueError("mic_positions must have shape (C, 3) or (>=C, 3)")
 

@@ -120,7 +120,9 @@ def load_toml(path: str | Path | None) -> Dict[str, Any]:
     return data
 
 
-def resolve_config(config_path: str | Path | None, overrides: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def resolve_config(
+    config_path: str | Path | None, overrides: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
     config = _deep_merge(config, load_toml(config_path))
     if overrides:

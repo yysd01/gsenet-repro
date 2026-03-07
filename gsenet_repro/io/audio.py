@@ -21,7 +21,9 @@ def _maybe_normalize(audio: np.ndarray, norm: str) -> np.ndarray:
     return audio
 
 
-def safe_write_wav(path: str | Path, audio: np.ndarray, sample_rate: int, norm: str = "peak") -> None:
+def safe_write_wav(
+    path: str | Path, audio: np.ndarray, sample_rate: int, norm: str = "peak"
+) -> None:
     if norm not in {"peak", "none"}:
         raise ValueError(f"norm must be 'peak' or 'none', got {norm}")
     wav_path = Path(path)

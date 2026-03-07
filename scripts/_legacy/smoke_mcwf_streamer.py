@@ -5,7 +5,9 @@ import importlib.util
 import sys
 
 if importlib.util.find_spec("torch") is None:
-    print("torch not installed. Install requirements-torch.txt to run this script.", file=sys.stderr)
+    print(
+        "torch not installed. Install requirements-torch.txt to run this script.", file=sys.stderr
+    )
     raise SystemExit(1)
 
 import torch

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -49,7 +49,9 @@ def _generate_dataset(
             s, n, i, rir, rir_anechoic, params, background_config=background_config, target_mic=1
         )
         y_mics = np.stack([_y0, y1, y2, _y3], axis=0).astype(np.float32)
-        y0 = mcwf_make_y0(y_mics, stft_params={"n_fft": 320, "win_length": 320, "hop_length": 160}, ref_ch=1)
+        y0 = mcwf_make_y0(
+            y_mics, stft_params={"n_fft": 320, "win_length": 320, "hop_length": 160}, ref_ch=1
+        )
 
         y0_list.append(y0)
         y1_list.append(y1)
@@ -150,7 +152,12 @@ def main() -> None:
                 val_hat_np = val_hat.cpu().numpy()
             val_snr = float(np.mean([snr_db(ref, est) for ref, est in zip(yt_val, val_hat_np)]))
             log_rows.append(
-                {"epoch": epoch, "train_loss": float(loss.item()), "val_loss": val_loss, "val_snr": val_snr}
+                {
+                    "epoch": epoch,
+                    "train_loss": float(loss.item()),
+                    "val_loss": val_loss,
+                    "val_snr": val_snr,
+                }
             )
             print(
                 f"epoch={epoch:03d} train_loss={loss.item():.6f} "
@@ -180,12 +187,16 @@ def main() -> None:
 
     model.eval()
     with torch.no_grad():
-        y_hat_test = model(
-            torch.tensor(y0_test, dtype=torch.float32),
-            torch.tensor(y1_test, dtype=torch.float32),
-            torch.tensor(y2_test, dtype=torch.float32),
-            noise_level=torch.tensor(noise_level_test, dtype=torch.float32),
-        ).cpu().numpy()
+        y_hat_test = (
+            model(
+                torch.tensor(y0_test, dtype=torch.float32),
+                torch.tensor(y1_test, dtype=torch.float32),
+                torch.tensor(y2_test, dtype=torch.float32),
+                noise_level=torch.tensor(noise_level_test, dtype=torch.float32),
+            )
+            .cpu()
+            .numpy()
+        )
 
     eval_rows = []
     for idx, (ref, noisy, est) in enumerate(zip(yt_test, y0_test, y_hat_test)):

@@ -1,4 +1,5 @@
 """Torch-based streaming wrapper for the minimal GSENet model."""
+
 from __future__ import annotations
 
 from collections import deque
@@ -67,25 +68,17 @@ class GSENetStreamer:
             return chunk
         raise ValueError("chunk must have shape (T,) or (B, T)")
 
-    def _prepare_buffer(
-        self, buffer: Optional[torch.Tensor], chunk: torch.Tensor
-    ) -> torch.Tensor:
+    def _prepare_buffer(self, buffer: Optional[torch.Tensor], chunk: torch.Tensor) -> torch.Tensor:
         if buffer is None:
-            history = torch.zeros(
-                (chunk.shape[0], 0), dtype=chunk.dtype, device=chunk.device
-            )
+            history = torch.zeros((chunk.shape[0], 0), dtype=chunk.dtype, device=chunk.device)
         else:
             history = buffer
         return torch.cat([history, chunk], dim=-1)
 
-    def _init_output_fifo(
-        self, batch_size: int, device: torch.device, dtype: torch.dtype
-    ) -> None:
+    def _init_output_fifo(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> None:
         if self._output_fifo or self.algorithmic_delay <= 0:
             return
-        zeros = torch.zeros(
-            (batch_size, self.algorithmic_delay), device=device, dtype=dtype
-        )
+        zeros = torch.zeros((batch_size, self.algorithmic_delay), device=device, dtype=dtype)
         self._output_fifo.append(zeros)
 
     def process(
@@ -114,9 +107,7 @@ class GSENetStreamer:
             y_hat = self.model(y0_full, y1_full, y2_full)
 
         y_hat_chunk = y_hat[:, -self.chunk_size :]
-        self._init_output_fifo(
-            y_hat_chunk.shape[0], y_hat_chunk.device, y_hat_chunk.dtype
-        )
+        self._init_output_fifo(y_hat_chunk.shape[0], y_hat_chunk.device, y_hat_chunk.dtype)
         self._output_fifo.append(y_hat_chunk)
 
         available = torch.cat(tuple(self._output_fifo), dim=-1)

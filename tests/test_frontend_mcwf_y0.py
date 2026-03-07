@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 

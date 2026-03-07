@@ -1,5 +1,5 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 
@@ -23,13 +23,19 @@ def main() -> None:
     freqs = np.linspace(0.0, 1.0, F, dtype=np.float32)
     tau_tar = np.array([0.0, 2e-5, -1e-5, 1e-5], dtype=np.float32)
     tau_int = np.array([0.0, -7e-5, 6e-5, -5e-5], dtype=np.float32)
-    d_tar = np.exp(-1j * 2 * np.pi * freqs[:, None] * tau_tar[None, :] * 8000.0).astype(np.complex64)
-    d_int = np.exp(-1j * 2 * np.pi * freqs[:, None] * tau_int[None, :] * 8000.0).astype(np.complex64)
+    d_tar = np.exp(-1j * 2 * np.pi * freqs[:, None] * tau_tar[None, :] * 8000.0).astype(
+        np.complex64
+    )
+    d_int = np.exp(-1j * 2 * np.pi * freqs[:, None] * tau_int[None, :] * 8000.0).astype(
+        np.complex64
+    )
     d_tar /= d_tar[:, [ref]]
 
     s = (rng.standard_normal((F, T)) + 1j * rng.standard_normal((F, T))).astype(np.complex64)
     i = (rng.standard_normal((F, T)) + 1j * rng.standard_normal((F, T))).astype(np.complex64)
-    noise = 0.15 * (rng.standard_normal((F, T, C)) + 1j * rng.standard_normal((F, T, C))).astype(np.complex64)
+    noise = 0.15 * (rng.standard_normal((F, T, C)) + 1j * rng.standard_normal((F, T, C))).astype(
+        np.complex64
+    )
 
     s[:, : T // 3] = 0.0
     X = s[:, :, None] * d_tar[:, None, :] + 1.2 * i[:, :, None] * d_int[:, None, :] + noise

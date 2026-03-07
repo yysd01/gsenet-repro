@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import sys
+from pathlib import Path
 
 if importlib.util.find_spec("torch") is None:
     print("torch not installed. Install requirements-torch.txt to run training.", file=sys.stderr)

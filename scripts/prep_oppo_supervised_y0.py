@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -13,7 +12,6 @@ from gsenet_repro.dsp.supervised_bf import (
     build_doa_rtf_library,
     load_rtf_lib,
 )
-
 
 DEFAULT_STFT = {
     "n_fft": 256,
@@ -105,7 +103,9 @@ def run_prep(
         )
 
     print("=== Oppo supervised beamforming preprocessing summary ===")
-    print(f"split={split} samples={len(dataset)} single_target={single_target} dual_target={dual_target}")
+    print(
+        f"split={split} samples={len(dataset)} single_target={single_target} dual_target={dual_target}"
+    )
     print(f"constraint_error: {_percentile_summary(constraint_errors)}")
     print("output layout:")
     print(f"  {out_root}/{split}/<case>/y0/*.wav")
@@ -114,7 +114,9 @@ def run_prep(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare Oppo supervised MVDR/LCMV y0 waveforms offline.")
+    parser = argparse.ArgumentParser(
+        description="Prepare Oppo supervised MVDR/LCMV y0 waveforms offline."
+    )
     parser.add_argument("--dataset-root", type=str, required=True)
     parser.add_argument("--split", type=str, required=True, choices=["train", "valid", "test"])
     parser.add_argument("--out-root", type=str, required=True)

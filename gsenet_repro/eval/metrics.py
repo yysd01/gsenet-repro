@@ -3,6 +3,7 @@
 Note: These are proxy implementations intended for regression testing and
 relative comparisons when PESQ/STOI dependencies are unavailable.
 """
+
 from __future__ import annotations
 
 import numpy as np
