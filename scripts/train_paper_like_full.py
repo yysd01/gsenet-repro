@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.util
+import json
 import random
 import sys
 import time
@@ -23,6 +24,11 @@ if importlib.util.find_spec("torch") is None:
 
 import torch
 from torch.utils.data import DataLoader
+
+try:  # pragma: no cover - optional soundfile
+    import soundfile as sf
+except ImportError:  # pragma: no cover
+    sf = None
 
 from gsenet_repro.config import resolve_config, resolve_run_dir, save_resolved_config
 from gsenet_repro.data.oppo_triplet_dataset import OppoPrecomputedY0Dataset
@@ -288,6 +294,111 @@ def _make_dataloader(
     return DataLoader(dataset, batch_size=batch_size, **kwargs)
 
 
+def _rms(x: torch.Tensor) -> float:
+    return float(torch.sqrt(torch.mean(x.detach().float() ** 2)).item())
+
+
+def _clip_ratio(x: torch.Tensor, threshold: float = 0.999) -> float:
+    return float((x.detach().abs() > threshold).float().mean().item())
+
+
+def _grad_stats(model: torch.nn.Module) -> tuple[float, float]:
+    sum_sq = 0.0
+    grad_max = 0.0
+    for param in model.parameters():
+        if param.grad is None:
+            continue
+        grad = param.grad.detach().float()
+        sum_sq += float(torch.sum(grad * grad).item())
+        if grad.numel() > 0:
+            grad_max = max(grad_max, float(grad.abs().max().item()))
+    return float(np.sqrt(sum_sq)), grad_max
+
+
+def _param_norm(model: torch.nn.Module) -> float:
+    sum_sq = 0.0
+    for param in model.parameters():
+        data = param.detach().float()
+        sum_sq += float(torch.sum(data * data).item())
+    return float(np.sqrt(sum_sq))
+
+
+def _compute_metric_summary(yt: torch.Tensor, y0: torch.Tensor, y1: torch.Tensor, y_hat: torch.Tensor) -> Dict[str, float]:
+    snr_in = snr_db(yt, y0).mean().item()
+    snr_out = snr_db(yt, y_hat).mean().item()
+    snr_y1 = snr_db(yt, y1).mean().item()
+    sisnr_in = si_snr_db(yt, y0).mean().item()
+    sisnr_out = si_snr_db(yt, y_hat).mean().item()
+    sisnr_y1 = si_snr_db(yt, y1).mean().item()
+    sisdr_in = sisdr(yt, y0).mean().item()
+    sisdr_out = sisdr(yt, y_hat).mean().item()
+    sisdr_y1 = sisdr(yt, y1).mean().item()
+    return {
+        "snr_in": snr_in,
+        "snr_out": snr_out,
+        "snr_y1": snr_y1,
+        "snr_impr": snr_out - snr_in,
+        "delta_snr_y0_vs_y1": snr_in - snr_y1,
+        "delta_snr_yhat_vs_y0": snr_out - snr_in,
+        "delta_snr_yhat_vs_y1": snr_out - snr_y1,
+        "sisnr_in": sisnr_in,
+        "sisnr_out": sisnr_out,
+        "sisnr_y1": sisnr_y1,
+        "sisnr_impr": sisnr_out - sisnr_in,
+        "delta_sisnr_y0_vs_y1": sisnr_in - sisnr_y1,
+        "delta_sisnr_yhat_vs_y0": sisnr_out - sisnr_in,
+        "delta_sisnr_yhat_vs_y1": sisnr_out - sisnr_y1,
+        "sisdr_in": sisdr_in,
+        "sisdr_out": sisdr_out,
+        "sisdr_y1": sisdr_y1,
+        "sisdr_impr": sisdr_out - sisdr_in,
+        "delta_sisdr_y0_vs_y1": sisdr_in - sisdr_y1,
+        "delta_sisdr_yhat_vs_y0": sisdr_out - sisdr_in,
+        "delta_sisdr_yhat_vs_y1": sisdr_out - sisdr_y1,
+    }
+
+
+def _dump_debug(
+    run_dir: Path,
+    step: int,
+    batch: Dict[str, torch.Tensor],
+    y_hat: torch.Tensor,
+    sample_rate: int,
+    debug_cfg: Dict[str, object],
+    extra_stats_dict: Dict[str, object],
+) -> None:
+    debug_dir_name = str(debug_cfg.get("dir", "debug"))
+    dump_dir = run_dir / debug_dir_name / f"step_{step:05d}"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+
+    max_items = max(1, int(debug_cfg.get("max_items", 2)))
+    seconds = float(debug_cfg.get("seconds", 3.0))
+    clip_samples = max(1, int(round(sample_rate * seconds)))
+
+    tensors = {
+        "y0": batch["y0"],
+        "y1": batch["y1"],
+        "yt": batch["yt"],
+        "yhat": y_hat,
+    }
+
+    saved_tensors: Dict[str, torch.Tensor] = {}
+    for name, value in tensors.items():
+        clipped = value.detach().float().cpu()[:max_items, :clip_samples]
+        saved_tensors[name] = clipped
+        for idx in range(clipped.shape[0]):
+            item_audio = clipped[idx].numpy()
+            stem = dump_dir / f"{name}_{idx:02d}"
+            if sf is not None:
+                sf.write(stem.with_suffix(".wav"), item_audio, sample_rate)
+            else:
+                np.save(stem.with_suffix(".npy"), item_audio)
+
+    torch.save(saved_tensors, dump_dir / "batch.pt")
+    with (dump_dir / "meta.json").open("w", encoding="utf-8") as handle:
+        json.dump(extra_stats_dict, handle, indent=2, sort_keys=True)
+
+
 def _log_eval_metrics(
     step: int,
     eval_loss: torch.Tensor,
@@ -296,12 +407,9 @@ def _log_eval_metrics(
     sample_rate: int,
     has_pesq: bool,
 ) -> Dict[str, float]:
-    eval_snr_in = snr_db(eval_batch_device["yt"], eval_batch_device["y0"]).mean().item()
-    eval_snr_out = snr_db(eval_batch_device["yt"], y_hat_eval).mean().item()
-    eval_sisnr_in = si_snr_db(eval_batch_device["yt"], eval_batch_device["y0"]).mean().item()
-    eval_sisnr_out = si_snr_db(eval_batch_device["yt"], y_hat_eval).mean().item()
-    eval_sisdr_in = sisdr(eval_batch_device["yt"], eval_batch_device["y0"]).mean().item()
-    eval_sisdr_out = sisdr(eval_batch_device["yt"], y_hat_eval).mean().item()
+    summary = _compute_metric_summary(
+        eval_batch_device["yt"], eval_batch_device["y0"], eval_batch_device["y1"], y_hat_eval
+    )
     eval_pesq_in = float("nan")
     eval_pesq_out = float("nan")
     eval_pesq_impr = float("nan")
@@ -317,18 +425,23 @@ def _log_eval_metrics(
         eval_pesq_in = float(np.mean(pesq_in_vals))
         eval_pesq_out = float(np.mean(pesq_out_vals))
         eval_pesq_impr = eval_pesq_out - eval_pesq_in
+    y0_rms = _rms(eval_batch_device["y0"])
+    y1_rms = _rms(eval_batch_device["y1"])
+    yt_rms = _rms(eval_batch_device["yt"])
+    yhat_rms = _rms(y_hat_eval)
     return {
         "step": step,
         "loss": float(eval_loss.item()),
-        "snr_in": eval_snr_in,
-        "snr_out": eval_snr_out,
-        "snr_impr": eval_snr_out - eval_snr_in,
-        "sisnr_in": eval_sisnr_in,
-        "sisnr_out": eval_sisnr_out,
-        "sisnr_impr": eval_sisnr_out - eval_sisnr_in,
-        "sisdr_in": eval_sisdr_in,
-        "sisdr_out": eval_sisdr_out,
-        "sisdr_impr": eval_sisdr_out - eval_sisdr_in,
+        **summary,
+        "grad_norm_l2": float("nan"),
+        "grad_max_abs": float("nan"),
+        "param_norm_l2": float("nan"),
+        "y0_rms": y0_rms,
+        "y1_rms": y1_rms,
+        "yt_rms": yt_rms,
+        "yhat_rms": yhat_rms,
+        "rms_ratio_yhat_to_yt": yhat_rms / (yt_rms + 1e-8),
+        "clip_ratio_yhat": _clip_ratio(y_hat_eval),
         "pesq_in": eval_pesq_in,
         "pesq_out": eval_pesq_out,
         "pesq_impr": eval_pesq_impr,
@@ -340,6 +453,15 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
     data_config = config["data"]
     pairing_config = config.get("pairing")
     train_config = config["train"]
+    debug_cfg = {
+        "enable": False,
+        "dump_every": 0,
+        "dump_on_nan": True,
+        "max_items": 2,
+        "seconds": 3.0,
+        "dir": "debug",
+    }
+    debug_cfg.update(config.get("debug", {}))
     loss_stft = config["stft_loss"]
     model_stft = config["stft_model"]
 
@@ -457,6 +579,30 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
     print("model_stft " + _format_stft_params(model_stft))
     print("loss_stft " + _format_stft_params(loss_stft))
 
+    sanity_batch = _prepare_batch_for_model(_to_device(eval_batch, device), data_config, model_stft)
+    with torch.no_grad():
+        sanity_delta_sisdr = (
+            sisdr(sanity_batch["yt"], sanity_batch["y0"]).mean().item()
+            - sisdr(sanity_batch["yt"], sanity_batch["y1"]).mean().item()
+        )
+        print(
+            "sanity valid_batch_len={length} sample_rate={sample_rate} "
+            "y0_rms={y0_rms:.5f} y1_rms={y1_rms:.5f} yt_rms={yt_rms:.5f} "
+            "delta_sisdr_y0_vs_y1={delta_sisdr:.3f}".format(
+                length=sanity_batch["yt"].shape[-1],
+                sample_rate=data_config["sample_rate"],
+                y0_rms=_rms(sanity_batch["y0"]),
+                y1_rms=_rms(sanity_batch["y1"]),
+                yt_rms=_rms(sanity_batch["yt"]),
+                delta_sisdr=sanity_delta_sisdr,
+            )
+        )
+        if sanity_delta_sisdr <= 0:
+            print(
+                "WARNING sanity delta_sisdr_y0_vs_y1 <= 0. "
+                "MCWF y0 may not outperform y1 on this fixed eval batch."
+            )
+
     metrics_path = run_dir / "metrics.csv"
     eval_path = run_dir / "eval.csv"
     best_metric = None
@@ -469,13 +615,34 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         "loss",
         "snr_in",
         "snr_out",
+        "snr_y1",
         "snr_impr",
+        "delta_snr_y0_vs_y1",
+        "delta_snr_yhat_vs_y0",
+        "delta_snr_yhat_vs_y1",
         "sisnr_in",
         "sisnr_out",
+        "sisnr_y1",
         "sisnr_impr",
+        "delta_sisnr_y0_vs_y1",
+        "delta_sisnr_yhat_vs_y0",
+        "delta_sisnr_yhat_vs_y1",
         "sisdr_in",
         "sisdr_out",
+        "sisdr_y1",
         "sisdr_impr",
+        "delta_sisdr_y0_vs_y1",
+        "delta_sisdr_yhat_vs_y0",
+        "delta_sisdr_yhat_vs_y1",
+        "grad_norm_l2",
+        "grad_max_abs",
+        "param_norm_l2",
+        "y0_rms",
+        "y1_rms",
+        "yt_rms",
+        "yhat_rms",
+        "rms_ratio_yhat_to_yt",
+        "clip_ratio_yhat",
         "pesq_in",
         "pesq_out",
         "pesq_impr",
@@ -498,34 +665,79 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         y_hat = _forward_model(model, model_name, y0, y1, y2)
         loss = stft_magnitude_loss(y_hat, yt, stft_params=loss_stft)
         loss.backward()
+        grad_norm_l2, grad_max_abs = _grad_stats(model)
+        param_norm_l2 = _param_norm(model)
+
+        loss_finite = bool(torch.isfinite(loss).all().item())
+        yhat_finite = bool(torch.isfinite(y_hat).all().item())
+        grad_finite = bool(np.isfinite(grad_norm_l2)) and bool(np.isfinite(grad_max_abs))
+        if not (loss_finite and yhat_finite and grad_finite):
+            debug_meta = {
+                "step": step,
+                "error": "non_finite_detected_before_optimizer_step",
+                "loss": float(loss.item()) if torch.isfinite(loss).all() else "non_finite",
+                "loss_is_finite": loss_finite,
+                "yhat_is_finite": yhat_finite,
+                "grad_is_finite": grad_finite,
+                "grad_norm_l2": grad_norm_l2,
+                "grad_max_abs": grad_max_abs,
+                "sample_rate": data_config["sample_rate"],
+                "ref_mic_index": data_config.get("ref_mic_index", 0),
+                "model_stft": model_stft,
+                "loss_stft": loss_stft,
+            }
+            if bool(debug_cfg.get("dump_on_nan", True)):
+                _dump_debug(run_dir, step, batch, y_hat, data_config["sample_rate"], debug_cfg, debug_meta)
+            raise RuntimeError(f"Non-finite training state at step {step}: {debug_meta}")
+
         optimizer.step()
 
         with torch.no_grad():
-            snr_in = snr_db(yt, y0).mean().item()
-            snr_out = snr_db(yt, y_hat).mean().item()
-            sisnr_in = si_snr_db(yt, y0).mean().item()
-            sisnr_out = si_snr_db(yt, y_hat).mean().item()
-            sisdr_in = sisdr(yt, y0).mean().item()
-            sisdr_out = sisdr(yt, y_hat).mean().item()
+            metrics_summary = _compute_metric_summary(yt, y0, y1, y_hat)
+            y0_rms = _rms(y0)
+            y1_rms = _rms(y1)
+            yt_rms = _rms(yt)
+            yhat_rms = _rms(y_hat)
+            rms_ratio_yhat_to_yt = yhat_rms / (yt_rms + 1e-8)
+            clip_ratio_yhat = _clip_ratio(y_hat)
 
-        snr_impr = snr_out - snr_in
-        sisnr_impr = sisnr_out - sisnr_in
-        sisdr_impr = sisdr_out - sisdr_in
+        dump_extra = {
+            "step": step,
+            "loss": float(loss.item()),
+            **metrics_summary,
+            "grad_norm_l2": grad_norm_l2,
+            "grad_max_abs": grad_max_abs,
+            "param_norm_l2": param_norm_l2,
+            "y0_rms": y0_rms,
+            "y1_rms": y1_rms,
+            "yt_rms": yt_rms,
+            "yhat_rms": yhat_rms,
+            "rms_ratio_yhat_to_yt": rms_ratio_yhat_to_yt,
+            "clip_ratio_yhat": clip_ratio_yhat,
+            "sample_rate": data_config["sample_rate"],
+            "ref_mic_index": data_config.get("ref_mic_index", 0),
+            "model_stft": model_stft,
+            "loss_stft": loss_stft,
+        }
+        if bool(debug_cfg.get("enable", False)) and int(debug_cfg.get("dump_every", 0)) > 0:
+            if step % int(debug_cfg["dump_every"]) == 0:
+                _dump_debug(run_dir, step, batch, y_hat, data_config["sample_rate"], debug_cfg, dump_extra)
 
         _write_csv_row(
             metrics_path,
             {
                 "step": step,
                 "loss": float(loss.item()),
-                "snr_in": snr_in,
-                "snr_out": snr_out,
-                "snr_impr": snr_impr,
-                "sisnr_in": sisnr_in,
-                "sisnr_out": sisnr_out,
-                "sisnr_impr": sisnr_impr,
-                "sisdr_in": sisdr_in,
-                "sisdr_out": sisdr_out,
-                "sisdr_impr": sisdr_impr,
+                **metrics_summary,
+                "grad_norm_l2": grad_norm_l2,
+                "grad_max_abs": grad_max_abs,
+                "param_norm_l2": param_norm_l2,
+                "y0_rms": y0_rms,
+                "y1_rms": y1_rms,
+                "yt_rms": yt_rms,
+                "yhat_rms": yhat_rms,
+                "rms_ratio_yhat_to_yt": rms_ratio_yhat_to_yt,
+                "clip_ratio_yhat": clip_ratio_yhat,
                 "pesq_in": float("nan"),
                 "pesq_out": float("nan"),
                 "pesq_impr": float("nan"),
@@ -536,8 +748,8 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         if tqdm:
             progress.set_postfix(
                 loss=f"{loss.item():.4f}",
-                snr_impr=f"{snr_impr:.2f}",
-                sisnr_impr=f"{sisnr_impr:.2f}",
+                delta_sisnr_yhat_vs_y0=f"{metrics_summary['delta_sisnr_yhat_vs_y0']:.2f}",
+                delta_sisnr_yhat_vs_y1=f"{metrics_summary['delta_sisnr_yhat_vs_y1']:.2f}",
                 lr=f"{optimizer.param_groups[0]['lr']:.2e}",
             )
         elif step % train_config["log_every"] == 0:
@@ -545,7 +757,8 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             last_log_time = time.time()
             print(
                 f"step={step:05d} loss={loss.item():.6f} "
-                f"snr_impr={snr_impr:.2f} sisnr_impr={sisnr_impr:.2f} "
+                f"delta_sisnr_yhat_vs_y0={metrics_summary['delta_sisnr_yhat_vs_y0']:.2f} "
+                f"delta_sisnr_yhat_vs_y1={metrics_summary['delta_sisnr_yhat_vs_y1']:.2f} "
                 f"lr={optimizer.param_groups[0]['lr']:.2e} "
                 f"iter_s={train_config['log_every'] / max(elapsed, 1e-6):.2f}"
             )
@@ -645,6 +858,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--fixed_crop", type=str, default=None)
     parser.add_argument("--resample", type=int, default=None)
     parser.add_argument("--cache_metadata", type=int, default=None)
+    parser.add_argument("--debug_enable", type=int, default=None)
+    parser.add_argument("--debug_dump_every", type=int, default=None)
+    parser.add_argument("--debug_dump_on_nan", type=int, default=None)
+    parser.add_argument("--debug_max_items", type=int, default=None)
+    parser.add_argument("--debug_seconds", type=float, default=None)
+    parser.add_argument("--debug_dir", type=str, default=None)
     return parser.parse_args()
 
 
@@ -713,6 +932,22 @@ def main() -> None:
         train_overrides["prefetch_factor"] = args.prefetch_factor
     if train_overrides:
         overrides["train"] = train_overrides
+
+    debug_overrides: Dict[str, object] = {}
+    if args.debug_enable is not None:
+        debug_overrides["enable"] = bool(args.debug_enable)
+    if args.debug_dump_every is not None:
+        debug_overrides["dump_every"] = args.debug_dump_every
+    if args.debug_dump_on_nan is not None:
+        debug_overrides["dump_on_nan"] = bool(args.debug_dump_on_nan)
+    if args.debug_max_items is not None:
+        debug_overrides["max_items"] = args.debug_max_items
+    if args.debug_seconds is not None:
+        debug_overrides["seconds"] = args.debug_seconds
+    if args.debug_dir is not None:
+        debug_overrides["dir"] = args.debug_dir
+    if debug_overrides:
+        overrides["debug"] = debug_overrides
 
     config = resolve_config(args.config, overrides=overrides)
     train_with_config(config, config_path=args.config)
