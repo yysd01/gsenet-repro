@@ -81,9 +81,12 @@ class MinimalGSENet(nn.Module):
         if y0.shape != y1.shape or y0.shape != y2.shape:
             raise ValueError("y0, y1, y2 must have the same shape")
 
-        X0 = torch_stft(y0, **self.stft_params, center=False)
-        X1 = torch_stft(y1, **self.stft_params, center=False)
-        X2 = torch_stft(y2, **self.stft_params, center=False)
+        stft_params = dict(self.stft_params)
+        stft_params.pop("center", None)
+
+        X0 = torch_stft(y0, **stft_params, center=False)
+        X1 = torch_stft(y1, **stft_params, center=False)
+        X2 = torch_stft(y2, **stft_params, center=False)
 
         X0, X1 = self._apply_mcwf(X0, X1, X2, noise_level=noise_level)
 
@@ -96,7 +99,7 @@ class MinimalGSENet(nn.Module):
         X_hat = torch.complex(x[:, 0], x[:, 1])
         return torch_istft(
             X_hat,
-            **self.stft_params,
+            **stft_params,
             center=False,
             length=y0.shape[1],
         )
