@@ -116,7 +116,18 @@ def istft(
 
     window_tensor = _make_window(win_length, device=X.device, dtype=X.real.dtype, center=center)
     if not center:
-        return _istft_center_false_manual(X, n_fft, win_length, hop_length, window_tensor, length)
+        try:
+            return torch.istft(
+                X,
+                n_fft=n_fft,
+                hop_length=hop_length,
+                win_length=win_length,
+                window=window_tensor,
+                center=False,
+                length=length,
+            )
+        except RuntimeError:
+            return _istft_center_false_manual(X, n_fft, win_length, hop_length, window_tensor, length)
     return torch.istft(
         X,
         n_fft=n_fft,
