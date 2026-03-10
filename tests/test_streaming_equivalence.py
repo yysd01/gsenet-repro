@@ -61,6 +61,7 @@ def test_streaming_matches_offline() -> None:
     y_stream = _stream_inference(streamer, y0, y1, y2)
 
     delay = streamer.algorithmic_delay
+    # Keep a single alignment path so delayed stream/offline outputs are compared correctly.
     if delay == 0:
         torch.testing.assert_close(
             y_stream,
