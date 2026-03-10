@@ -31,6 +31,7 @@ def stft_magnitude_loss(
         raise ValueError("y_hat and y_ref must have the same shape")
 
     params = dict(stft_params) if stft_params is not None else dict(LOSS_STFT)
+    params.pop("center", None)
 
     Y_hat = torch_stft(y_hat, **params, center=False)
     Y_ref = torch_stft(y_ref, **params, center=False)

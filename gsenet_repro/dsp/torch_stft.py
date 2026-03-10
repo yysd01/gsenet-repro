@@ -14,8 +14,16 @@ def _make_window(
     center: bool,
     eps: float = 1e-4,
 ) -> torch.Tensor:
-    del center, eps
-    return torch.hann_window(win_length, periodic=True, device=device, dtype=dtype)
+    window = torch.hann_window(win_length, periodic=True, device=device, dtype=dtype)
+    # With center=False, there is no analysis padding and the first sample is
+    # multiplied by window[0]. Standard periodic Hann has window[0] == 0, which
+    # makes boundary samples non-invertible. Lift only the endpoints in the
+    # center=False path to keep center=True behavior unchanged.
+    if not center:
+        window = window.clone()
+        window[0] = eps
+        window[-1] = torch.maximum(window[-1], torch.tensor(eps, device=device, dtype=dtype))
+    return window
 
 
 def stft(
