@@ -61,12 +61,20 @@ def test_streaming_matches_offline() -> None:
     y_stream = _stream_inference(streamer, y0, y1, y2)
 
     delay = streamer.algorithmic_delay
-    torch.testing.assert_close(
-        y_stream[:, delay:],
-        y_offline[:, delay:],
-        rtol=1e-3,
-        atol=1e-3,
-    )
+    if delay == 0:
+        torch.testing.assert_close(
+            y_stream,
+            y_offline,
+            rtol=1e-3,
+            atol=1e-3,
+        )
+    else:
+        torch.testing.assert_close(
+            y_stream[:, delay:],
+            y_offline[:, :-delay],
+            rtol=1e-3,
+            atol=1e-3,
+        )
 
 
 def test_streaming_safe_prefix() -> None:
