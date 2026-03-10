@@ -69,6 +69,9 @@ class GSENetStreamer:
         self._buffer_y1: Optional[torch.Tensor] = None
         self._buffer_y2: Optional[torch.Tensor] = None
         self._output_fifo: Deque[torch.Tensor] = deque()
+        self._t_total = 0
+        self._t_emitted = 0
+        self._buffer_start = 0
 
     def _ensure_batch(self, chunk: torch.Tensor) -> torch.Tensor:
         if chunk.ndim == 1:
@@ -105,14 +108,55 @@ class GSENetStreamer:
         y1_full = self._prepare_buffer(self._buffer_y1, y1_chunk)
         y2_full = self._prepare_buffer(self._buffer_y2, y2_chunk)
 
+        if not self._output_fifo and self.algorithmic_delay > 0:
+            self._output_fifo.append(
+                torch.zeros(
+                    (y0_chunk.shape[0], self.algorithmic_delay),
+                    dtype=y0_chunk.dtype,
+                    device=y0_chunk.device,
+                )
+            )
+
         self.model.eval()
         with torch.no_grad():
             y_hat = self.model(y0_full, y1_full, y2_full)
 
-        y_hat_chunk = y_hat[:, -self.chunk_size :]
+        self._t_total += self.chunk_size
+        stable_end_global = max(0, self._t_total - self.algorithmic_delay)
+        if stable_end_global > self._t_emitted:
+            local_start = self._t_emitted - self._buffer_start
+            local_end = stable_end_global - self._buffer_start
+            if local_start < 0:
+                raise RuntimeError("streaming buffer start exceeded emitted pointer")
+            self._output_fifo.append(y_hat[:, local_start:local_end])
+            self._t_emitted = stable_end_global
+
+        if self._output_fifo:
+            available = torch.cat(list(self._output_fifo), dim=-1)
+        else:
+            available = torch.zeros(
+                (y0_chunk.shape[0], 0), dtype=y0_chunk.dtype, device=y0_chunk.device
+            )
+
+        if available.shape[-1] >= self.chunk_size:
+            y_hat_chunk = available[:, : self.chunk_size]
+            remaining = available[:, self.chunk_size :]
+        else:
+            left_pad = torch.zeros(
+                (available.shape[0], self.chunk_size - available.shape[-1]),
+                dtype=available.dtype,
+                device=available.device,
+            )
+            y_hat_chunk = torch.cat([left_pad, available], dim=-1)
+            remaining = available[:, :0]
+
+        self._output_fifo = deque([remaining]) if remaining.shape[-1] > 0 else deque()
 
         self._buffer_y0 = y0_full[:, -self.lookback :]
         self._buffer_y1 = y1_full[:, -self.lookback :]
         self._buffer_y2 = y2_full[:, -self.lookback :]
+        self._buffer_start = self._t_total - self._buffer_y0.shape[-1]
+        if self._buffer_start > self._t_emitted:
+            raise RuntimeError("lookback is too small for stable streaming emission")
 
         return y_hat_chunk
