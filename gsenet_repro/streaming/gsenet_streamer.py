@@ -42,10 +42,19 @@ class GSENetStreamer:
         self.model = model
         self.sample_rate = sample_rate
         self.chunk_size = chunk_size
+        self.hop_length = MODEL_STFT["hop_length"]
+        if self.chunk_size % self.hop_length != 0:
+            raise ValueError(
+                "chunk_size must be a multiple of MODEL_STFT hop_length for streaming equivalence"
+            )
         self.win_length = MODEL_STFT["win_length"]
-        self.lookback = lookback if lookback is not None else 4096
-        if self.lookback < self.win_length:
-            raise ValueError("lookback must be >= MODEL_STFT win_length")
+        lookback_raw = lookback if lookback is not None else 4096
+        lookback_aligned = (lookback_raw // self.hop_length) * self.hop_length
+        if lookback_aligned < self.win_length:
+            lookback_aligned = (
+                (self.win_length + self.hop_length - 1) // self.hop_length
+            ) * self.hop_length
+        self.lookback = lookback_aligned
         self.algorithmic_delay = (
             algorithmic_delay if algorithmic_delay is not None else self.win_length
         )
