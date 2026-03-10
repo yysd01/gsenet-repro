@@ -10,8 +10,7 @@ from gsenet_repro.streaming.mvdr_streamer import MVDRStreamer
 
 def _dummy_rtf_lib(streamer: MVDRStreamer) -> dict[str, object]:
     F = streamer.n_fft // 2 + 1
-    d = np.zeros((1, F, streamer.num_mics), dtype=np.complex64)
-    d[:, :, streamer.ref_ch] = 1.0 + 0.0j
+    d = np.ones((1, F, streamer.num_mics), dtype=np.complex64)
     return {
         "doa_bins": np.array([0], dtype=np.int32),
         "d_mean": d,

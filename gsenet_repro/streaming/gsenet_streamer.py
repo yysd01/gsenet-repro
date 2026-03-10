@@ -106,7 +106,18 @@ class GSENetStreamer:
         with torch.no_grad():
             y_hat = self.model(y0_full, y1_full, y2_full)
 
-        y_hat_chunk = y_hat[:, -self.chunk_size :]
+        total_len = y_hat.shape[-1]
+        end = max(0, total_len - self.algorithmic_delay)
+        start = max(0, end - self.chunk_size)
+        y_hat_chunk = y_hat[:, start:end]
+        if y_hat_chunk.shape[1] < self.chunk_size:
+            pad = torch.zeros(
+                (y_hat_chunk.shape[0], self.chunk_size - y_hat_chunk.shape[1]),
+                dtype=y_hat_chunk.dtype,
+                device=y_hat_chunk.device,
+            )
+            y_hat_chunk = torch.cat([pad, y_hat_chunk], dim=-1)
+
         self._init_output_fifo(y_hat_chunk.shape[0], y_hat_chunk.device, y_hat_chunk.dtype)
         self._output_fifo.append(y_hat_chunk)
 

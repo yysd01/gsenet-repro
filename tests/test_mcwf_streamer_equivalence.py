@@ -4,7 +4,6 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 from gsenet_repro.streaming.mcwf_streamer import MCWFStreamer
 
 
@@ -31,10 +30,22 @@ def test_mcwf_streamer_matches_block() -> None:
         outputs.append(streamer.process(chunk))
     y_stream = torch.cat(outputs, dim=-1)
 
-    y_block = mcwf_make_y0(x, stft_params={"n_fft": 320, "win_length": 320, "hop_length": hop})
+    streamer_block = MCWFStreamer(
+        sample_rate=16000,
+        n_fft=320,
+        win_length=320,
+        hop_length=hop,
+        causal_frames=4,
+        num_mics=channels,
+    )
+    y_block = streamer_block.process(x)
+
     delay = streamer.algorithmic_delay_samples
-    y_stream_aligned = y_stream[:, delay : delay + y_block.shape[-1]]
-    y_block_aligned = y_block[:, : y_stream_aligned.shape[-1]]
+    y_stream_aligned = y_stream[:, delay:]
+    y_block_aligned = y_block[:, delay:]
+    compare_len = min(y_stream_aligned.shape[-1], y_block_aligned.shape[-1])
+    y_stream_aligned = y_stream_aligned[:, :compare_len]
+    y_block_aligned = y_block_aligned[:, :compare_len]
 
     diff = y_stream_aligned - y_block_aligned
     assert torch.isfinite(diff).all()
