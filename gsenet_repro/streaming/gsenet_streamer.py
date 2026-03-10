@@ -109,38 +109,10 @@ class GSENetStreamer:
         with torch.no_grad():
             y_hat = self.model(y0_full, y1_full, y2_full)
 
-        total_len = y_hat.shape[-1]
-        end = max(0, total_len - self.algorithmic_delay)
-        start = max(0, end - self.chunk_size)
-        y_hat_chunk = y_hat[:, start:end]
-        if y_hat_chunk.shape[1] < self.chunk_size:
-            pad = torch.zeros(
-                (y_hat_chunk.shape[0], self.chunk_size - y_hat_chunk.shape[1]),
-                dtype=y_hat_chunk.dtype,
-                device=y_hat_chunk.device,
-            )
-            y_hat_chunk = torch.cat([y_hat_chunk, pad], dim=-1)
-
-        self._output_fifo.append(y_hat_chunk)
-
-        available = torch.cat(tuple(self._output_fifo), dim=-1)
-        if available.shape[1] >= self.chunk_size:
-            out = available[:, : self.chunk_size]
-            remaining = available[:, self.chunk_size :]
-            self._output_fifo.clear()
-            if remaining.numel() > 0:
-                self._output_fifo.append(remaining)
-        else:
-            pad = torch.zeros(
-                (available.shape[0], self.chunk_size - available.shape[1]),
-                dtype=available.dtype,
-                device=available.device,
-            )
-            out = torch.cat([pad, available], dim=-1)
-            self._output_fifo.clear()
+        y_hat_chunk = y_hat[:, -self.chunk_size :]
 
         self._buffer_y0 = y0_full[:, -self.lookback :]
         self._buffer_y1 = y1_full[:, -self.lookback :]
         self._buffer_y2 = y2_full[:, -self.lookback :]
 
-        return out
+        return y_hat_chunk
