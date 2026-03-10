@@ -110,7 +110,7 @@ class GSENetStreamer:
                 dtype=y_hat_chunk.dtype,
                 device=y_hat_chunk.device,
             )
-            y_hat_chunk = torch.cat([pad, y_hat_chunk], dim=-1)
+            y_hat_chunk = torch.cat([y_hat_chunk, pad], dim=-1)
 
         self._output_fifo.append(y_hat_chunk)
 
