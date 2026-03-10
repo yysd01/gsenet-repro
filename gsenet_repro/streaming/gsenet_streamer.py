@@ -75,12 +75,6 @@ class GSENetStreamer:
             history = buffer
         return torch.cat([history, chunk], dim=-1)
 
-    def _init_output_fifo(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> None:
-        if self._output_fifo or self.algorithmic_delay <= 0:
-            return
-        zeros = torch.zeros((batch_size, self.algorithmic_delay), device=device, dtype=dtype)
-        self._output_fifo.append(zeros)
-
     def process(
         self, y0_chunk: "torch.Tensor", y1_chunk: "torch.Tensor", y2_chunk: "torch.Tensor"
     ) -> "torch.Tensor":
@@ -118,7 +112,6 @@ class GSENetStreamer:
             )
             y_hat_chunk = torch.cat([pad, y_hat_chunk], dim=-1)
 
-        self._init_output_fifo(y_hat_chunk.shape[0], y_hat_chunk.device, y_hat_chunk.dtype)
         self._output_fifo.append(y_hat_chunk)
 
         available = torch.cat(tuple(self._output_fifo), dim=-1)
