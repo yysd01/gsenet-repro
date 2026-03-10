@@ -22,7 +22,9 @@ def _make_window(
     if not center:
         window = window.clone()
         window[0] = eps
-        window[-1] = torch.maximum(window[-1], torch.tensor(eps, device=device, dtype=dtype))
+        window[-1] = torch.maximum(
+            window[-1], torch.tensor(eps, device=device, dtype=dtype)
+        )
     return window
 
 
