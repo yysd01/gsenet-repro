@@ -47,7 +47,7 @@ def test_streaming_matches_offline() -> None:
     lookback = 4096
 
     y0, y1, y2 = _make_batch(batch, length)
-    model = MinimalGSENet()
+    model = MinimalGSENet(mcwf_gain_min=1.0, mcwf_gain_max=1.0)
 
     with torch.no_grad():
         y_offline = model(y0, y1, y2)
@@ -94,7 +94,7 @@ def test_streaming_safe_prefix() -> None:
     y1_changed[:, change_idx:] -= 0.2
     y2_changed[:, change_idx:] += 0.1
 
-    model = MinimalGSENet()
+    model = MinimalGSENet(mcwf_gain_min=1.0, mcwf_gain_max=1.0)
     streamer = GSENetStreamer(
         model,
         chunk_size=chunk_size,
