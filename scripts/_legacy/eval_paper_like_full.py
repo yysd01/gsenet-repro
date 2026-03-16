@@ -35,7 +35,7 @@ from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
+from gsenet_repro.pipeline.frontend import make_y0_from_frontend
 
 
 def _normalize_audio(x: np.ndarray, peak: float = 0.99) -> np.ndarray:
@@ -266,22 +266,17 @@ def main() -> None:
                 x_mics = batch["x_mics"].to(device)
                 y1 = batch["y1"].to(device)
                 yt = batch["yt"].to(device)
-                if bool(config["data"]["use_mcwf"]):
-                    y0 = mcwf_make_y0(
-                        x_mics,
-                        stft_params=config["stft_model"],
-                        causal_frames=config["data"]["mcwf_causal_frames"],
-                        ref_ch=int(config["data"]["ref_mic_index"]),
-                        sample_rate=int(config["data"]["sample_rate"]),
-                        mic_positions=config["data"].get("mic_positions"),
-                    )
-                else:
-                    y0 = y1
-                y2 = x_mics[:, min(2, x_mics.shape[1] - 1)]
+                y0 = make_y0_from_frontend(
+                    x_mics,
+                    frontend_cfg=config.get("frontend", {}),
+                    stft_cfg=config["stft_model"],
+                    data_cfg=config["data"],
+                )
+                y2 = x_mics[:, min(2, x_mics.shape[1] - 1)] if model_name == "minimal" else None
             else:
                 y0 = batch["y0"].to(device)
                 y1 = batch["y1"].to(device)
-                y2 = batch["y2"].to(device)
+                y2 = batch["y2"].to(device) if model_name == "minimal" else None
                 yt = batch["yt"].to(device)
                 x_mics = batch.get("x_mics")
             y_hat = _forward_model(model, model_name, y0, y1, y2)

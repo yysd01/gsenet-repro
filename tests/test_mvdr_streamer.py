@@ -68,3 +68,14 @@ def test_target_like_higher_for_coherent_signal() -> None:
     score_incoh = float(streamer.last_target_like)
 
     assert score_coh >= score_incoh
+
+
+def test_from_config_stft_mismatch_rejected() -> None:
+    cfg = {
+        "data": {"sample_rate": 16000, "num_mics": 4, "ref_mic_index": 1},
+        "stft_model": {"n_fft": 320, "win_length": 320, "hop_length": 160},
+        "stft_streaming": {"n_fft": 512, "win_length": 320, "hop_length": 160},
+        "frontend": {"ref_ch": 1},
+    }
+    with pytest.raises(ValueError, match="stft_streaming mismatch"):
+        MVDRStreamer.from_config(cfg)

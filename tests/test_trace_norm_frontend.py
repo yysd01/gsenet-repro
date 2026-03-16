@@ -71,6 +71,20 @@ def test_streaming_trace_norm_ref_and_stft_consistency() -> None:
     assert s.hop_length == 160
 
 
+def test_streaming_trace_norm_stft_mismatch_rejected() -> None:
+    pytest.importorskip("torch")
+    from gsenet_repro.streaming.tncov_streamer import TraceNormCovStreamer
+
+    cfg = {
+        "data": {"sample_rate": 16000, "num_mics": 4, "ref_mic_index": 1},
+        "stft_model": {"n_fft": 320, "win_length": 320, "hop_length": 160},
+        "stft_streaming": {"n_fft": 512, "win_length": 320, "hop_length": 160},
+        "frontend": {"type": "trace_norm", "ref_ch": 1},
+    }
+    with pytest.raises(ValueError, match="stft_streaming mismatch"):
+        TraceNormCovStreamer.from_config(cfg)
+
+
 def test_legacy_use_mcwf_config_is_mapped() -> None:
     with warnings.catch_warnings(record=True) as rec:
         warnings.simplefilter("always")

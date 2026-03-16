@@ -83,6 +83,13 @@ class MVDRStreamer:
     def from_config(cls, config: dict) -> "MVDRStreamer":
         data = config.get("data", {})
         stft = config.get("stft_model", {})
+        stft_streaming = config.get("stft_streaming")
+        if isinstance(stft_streaming, dict):
+            keys = ("n_fft", "win_length", "hop_length")
+            mismatched = [k for k in keys if k in stft_streaming and int(stft_streaming[k]) != int(stft.get(k, stft_streaming[k]))]
+            if mismatched:
+                mismatch_str = ", ".join(mismatched)
+                raise ValueError(f"stft_streaming mismatch with stft_model for keys: {mismatch_str}")
         frontend = config.get("frontend", {})
         return cls(
             sample_rate=int(data.get("sample_rate", 16000)),
