@@ -9,8 +9,12 @@ import numpy as np
 import torch
 
 from gsenet_repro.dsp.rtf_lib import get_d_from_lib, load_rtf_lib
+from gsenet_repro.dsp.trace_norm import hermitian_torch, trace_norm_weights_torch
 from gsenet_repro.pipeline.frontend import DEFAULT_MIC_POSITIONS
-from gsenet_repro.pipeline.gates import estimate_sector_gates
+from gsenet_repro.pipeline.gates import (
+    coherence_target_like_torch,
+    estimate_sector_gates,
+)
 
 
 class TraceNormCovStreamer:
@@ -182,32 +186,18 @@ class TraceNormCovStreamer:
         self.target_doa = int(doa_deg)
         self._d = torch.from_numpy(d_np.astype(np.complex64))
 
-    @staticmethod
-    def _hermitian(m: torch.Tensor) -> torch.Tensor:
-        return 0.5 * (m + m.conj().transpose(-1, -2))
-
-    def _diag_load(self, m: torch.Tensor, load: float) -> torch.Tensor:
-        c = m.shape[-1]
-        tr = m.diagonal(dim1=-2, dim2=-1).sum(dim=-1).real / float(c)
-        eye = torch.eye(c, dtype=m.dtype, device=m.device).unsqueeze(0)
-        return m + (float(load) * tr).unsqueeze(-1).unsqueeze(-1) * eye
-
-    def _psd_project(self, m: torch.Tensor) -> torch.Tensor:
-        evals, evecs = torch.linalg.eigh(self._hermitian(m))
-        evals = torch.clamp(evals.real, min=0.0)
-        return torch.matmul(evecs * evals.unsqueeze(-2), evecs.conj().transpose(-1, -2))
-
     def _noise_gate(self, x_fc: torch.Tensor, band_mask: torch.Tensor, frame_time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.gate_mode == "coherence":
             if self.rtf_lib is None or self.target_doa is None or self._d is None:
                 raise ValueError("gate_mode='coherence' requires loaded rtf_lib and target_doa")
             d = self._d.to(device=x_fc.device)
-            proj = torch.sum(d.conj() * x_fc, dim=-1)
-            d_norm = torch.sum(d.conj() * d, dim=-1).real
-            x_norm = torch.sum(x_fc.conj() * x_fc, dim=-1).real
-            coh = (proj.abs() ** 2) / (d_norm * x_norm + 1e-8)
-            score = coh[band_mask].mean() if band_mask.any() else coh.mean()
-            target_like = torch.clamp((score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0)
+            target_like, _ = coherence_target_like_torch(
+                x_fc,
+                d_fc=d,
+                coh_t0=self.coh_t0,
+                coh_t1=self.coh_t1,
+                freq_mask=band_mask,
+            )
             return 1.0 - target_like, target_like
         if self.gate_mode == "sector":
             x_np = frame_time.squeeze(0).detach().cpu().numpy()
@@ -232,24 +222,15 @@ class TraceNormCovStreamer:
         return noise_gate, 1.0 - noise_gate
 
     def _compute_weights(self, phi_v: torch.Tensor, phi_x: torch.Tensor) -> torch.Tensor:
-        eye = torch.eye(self.num_mics, dtype=phi_v.dtype, device=phi_v.device).unsqueeze(0)
-        try:
-            a = torch.linalg.solve(phi_v, phi_x)
-        except RuntimeError:
-            a = torch.linalg.solve(phi_v + 1e-3 * eye, phi_x)
-        tau = a.diagonal(dim1=-2, dim2=-1).sum(dim=-1)
-        den_real = tau.real
-        den = torch.clamp(den_real, min=self.eps_trace)
-        w = a[..., self.ref_ch] / den.unsqueeze(-1)
-
-        invalid = (~torch.isfinite(w).all(dim=-1)) | (~torch.isfinite(den_real)) | (
-            den_real <= self.eps_trace
+        w, den_real, invalid = trace_norm_weights_torch(
+            phi_v,
+            phi_x,
+            ref_ch=self.ref_ch,
+            diag_load_v=self.diag_load_v,
+            diag_load_x=self.diag_load_x,
+            eps_trace=self.eps_trace,
+            psd_project=self.psd_project,
         )
-        if torch.any(invalid):
-            w_fb = torch.zeros_like(w)
-            w_fb[:, self.ref_ch] = 1.0 + 0.0j
-            w = torch.where(invalid.unsqueeze(-1), w_fb, w)
-
         self.last_trace_den = den_real.detach().cpu()
         self.last_fallback_ratio = float(invalid.to(torch.float32).mean().item())
         return w
@@ -295,12 +276,9 @@ class TraceNormCovStreamer:
             self._phi_y = self.alpha_y * self._phi_y + (1.0 - self.alpha_y) * xxh
             self._phi_v = self.alpha_v * self._phi_v + (1.0 - self.alpha_v) * noise_gate * xxh
 
-            phi_y = self._diag_load(self._hermitian(self._phi_y), self.diag_load_x)
-            phi_v = self._diag_load(self._hermitian(self._phi_v), self.diag_load_v)
-            phi_x = self._hermitian(phi_y - phi_v)
-            if self.psd_project:
-                phi_x = self._psd_project(phi_x)
-            phi_x = self._diag_load(phi_x, self.diag_load_x)
+            phi_y = hermitian_torch(self._phi_y)
+            phi_v = hermitian_torch(self._phi_v)
+            phi_x = hermitian_torch(phi_y - phi_v)
 
             w = self._compute_weights(phi_v, phi_x)
 

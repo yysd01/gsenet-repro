@@ -10,7 +10,6 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 from gsenet_repro.dsp import MODEL_STFT
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
 try:  # pragma: no cover - optional torch dependency
     import torch
@@ -111,7 +110,7 @@ def _slice_aligned(
 
 
 class RealMultichannelDataset(Dataset):
-    """Dataset for real multi-mic recordings with optional MCWF frontend."""
+    """Dataset for real multi-mic recordings as raw waveform training inputs."""
 
     def __init__(
         self,
@@ -122,6 +121,7 @@ class RealMultichannelDataset(Dataset):
         num_mics: int = 4,
         ref_mic_index: int = 0,
         use_mcwf: bool = True,
+        include_legacy_targets: bool = False,
         stft_params: Optional[Dict[str, int]] = None,
         causal_frames: int = 4,
         seed: int = 0,
@@ -136,7 +136,8 @@ class RealMultichannelDataset(Dataset):
         self.ref_mic_index = int(ref_mic_index)
         if not 0 <= self.ref_mic_index < self.num_mics:
             raise ValueError("ref_mic_index out of range")
-        self.use_mcwf = bool(use_mcwf)
+        self.use_mcwf = bool(use_mcwf)  # compatibility only; frontend now computes y0
+        self.include_legacy_targets = bool(include_legacy_targets)
         self.stft_params = dict(stft_params) if stft_params is not None else dict(MODEL_STFT)
         self.causal_frames = int(causal_frames)
         self.seed = int(seed)
@@ -166,26 +167,15 @@ class RealMultichannelDataset(Dataset):
 
         x_mics = np.stack(mic_slices, axis=0).astype(np.float32)
         y1 = x_mics[self.ref_mic_index]
-        if self.use_mcwf:
-            y0 = mcwf_make_y0(
-                x_mics,
-                stft_params=self.stft_params,
-                causal_frames=self.causal_frames,
-                ref_ch=self.ref_mic_index,
-                sample_rate=self.sample_rate,
-                mic_positions=self.mic_positions,
-            )
-        else:
-            y0 = y1
-        y2 = x_mics[min(2, self.num_mics - 1)]
 
         sample: Dict[str, np.ndarray | "torch.Tensor"] = {
             "x_mics": x_mics.astype(np.float32),
-            "y0": y0.astype(np.float32),
             "y1": y1.astype(np.float32),
-            "y2": y2.astype(np.float32),
             "yt": target_slice.astype(np.float32),
         }
+        if self.include_legacy_targets:
+            y2 = x_mics[min(2, self.num_mics - 1)]
+            sample["y2"] = y2.astype(np.float32)
 
         if torch is not None:
             return {key: torch.tensor(value, dtype=torch.float32) for key, value in sample.items()}
