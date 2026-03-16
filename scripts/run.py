@@ -17,6 +17,7 @@ SCRIPT_BY_COMMAND = {
     "test": REPO_ROOT / "scripts" / "test.py",
     "report": REPO_ROOT / "scripts" / "report_paper_like_full.py",
     "stream-mvdr": REPO_ROOT / "scripts" / "stream_mvdr.py",
+    "stream-tncov": REPO_ROOT / "scripts" / "stream_tncov.py",
 }
 
 
@@ -213,6 +214,10 @@ def build_parser() -> argparse.ArgumentParser:
         (
             "stream-mvdr",
             "Run online MVDR streamer over a 4ch wav (underlying script: scripts/stream_mvdr.py).",
+        ),
+        (
+            "stream-tncov",
+            "Run online trace-normalized covariance streamer over a 4ch wav (underlying script: scripts/stream_tncov.py).",
         ),
     ):
         sub = subparsers.add_parser(cmd, help=help_text, description=help_text)
