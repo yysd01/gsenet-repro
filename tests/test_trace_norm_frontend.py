@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from gsenet_repro.config import resolve_config
+from gsenet_repro.data.paper_dataset import PaperLikeDataset
 from gsenet_repro.dsp.trace_norm import diag_load_np, hermitian_np, trace_norm_weights
 from gsenet_repro.pipeline.frontend import make_y0_from_frontend
 
@@ -88,6 +89,7 @@ def test_streaming_trace_norm_stft_mismatch_rejected() -> None:
 def test_prepare_batch_paper_scale_and_forward_without_y2() -> None:
     torch = pytest.importorskip("torch")
     from scripts.train_paper_like_full import _forward_model, _prepare_batch_for_model
+    from torch.utils.data import DataLoader
 
     class DummyPaper(torch.nn.Module):
         def forward(self, y0, y1):
@@ -137,6 +139,51 @@ def test_streaming_trace_norm_ref_channel_fallback() -> None:
     expected[:, 2] = 1.0 + 0.0j
     assert torch.allclose(w, expected)
 
+
+
+def test_trace_norm_weights_torch_supports_single_covariance_shape() -> None:
+    torch = pytest.importorskip("torch")
+    from gsenet_repro.dsp.trace_norm import trace_norm_weights_torch
+
+    C = 4
+    eye = torch.eye(C, dtype=torch.complex64)
+    w, den, invalid = trace_norm_weights_torch(eye, eye, ref_ch=1, eps_trace=1e-6)
+    assert w.shape == (C,)
+    assert den.shape == ()
+    assert invalid.shape == ()
+    assert torch.isfinite(w.real).all()
+
+
+def test_dataset_loader_prepare_forward_smoke_paper_scale() -> None:
+    torch = pytest.importorskip("torch")
+    from scripts.train_paper_like_full import _forward_model, _prepare_batch_for_model
+    from torch.utils.data import DataLoader
+
+    class DummyPaper(torch.nn.Module):
+        def forward(self, y0, y1):
+            return 0.5 * y0 + 0.5 * y1
+
+    dataset = PaperLikeDataset(
+        sample_rate=8000,
+        segment_seconds=0.08,
+        seed=7,
+        num_samples=2,
+        include_legacy_targets=False,
+    )
+    loader = DataLoader(dataset, batch_size=2)
+    batch = next(iter(loader))
+
+    assert "y2" not in batch
+    data_cfg = {"sample_rate": 8000, "ref_mic_index": 1}
+    stft_cfg = {"n_fft": 128, "win_length": 128, "hop_length": 64}
+    frontend_cfg = {"type": "trace_norm", "gate_mode": "vad", "ref_ch": 1}
+    prepared = _prepare_batch_for_model(batch, data_cfg, stft_cfg, frontend_cfg, "gsenet_paper_scale")
+
+    assert "y0" in prepared
+    assert "y2" not in prepared
+    y_hat = _forward_model(DummyPaper(), "gsenet_paper_scale", prepared["y0"], prepared["y1"], None)
+    assert y_hat.shape == prepared["y1"].shape
+    assert torch.isfinite(y_hat).all()
 
 def test_legacy_use_mcwf_config_is_mapped() -> None:
     with warnings.catch_warnings(record=True) as rec:
