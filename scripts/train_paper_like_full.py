@@ -40,7 +40,7 @@ from gsenet_repro.metrics.metrics_pesq import pesq_available, pesq_score
 from gsenet_repro.metrics.metrics_torch import si_snr_db, sisdr, snr_db
 from gsenet_repro.models.gsenet_paper_torch import GSENetPaperScale
 from gsenet_repro.models.gsenet_torch import MinimalGSENet
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
+from gsenet_repro.pipeline.frontend import make_y0_from_frontend
 
 try:  # pragma: no cover - optional tqdm
     from tqdm import tqdm
@@ -233,27 +233,20 @@ def _prepare_batch_for_model(
     batch: Dict[str, torch.Tensor],
     data_config: Dict[str, object],
     stft_params: Dict[str, int],
+    frontend_config: Dict[str, object],
+    model_name: str,
 ) -> Dict[str, torch.Tensor]:
     if "x_mics" not in batch:
         return batch
     x_mics = batch["x_mics"]
     y1 = batch["y1"]
     yt = batch["yt"]
-    if bool(data_config["use_mcwf"]):
-        y0 = mcwf_make_y0(
-            x_mics,
-            stft_params=stft_params,
-            causal_frames=data_config["mcwf_causal_frames"],
-            ref_ch=int(data_config["ref_mic_index"]),
-            sample_rate=int(data_config["sample_rate"]),
-            mic_positions=data_config.get("mic_positions"),
-        )
-    else:
-        y0 = y1
-    mic_index = min(2, x_mics.shape[1] - 1)
-    y2 = x_mics[:, mic_index]
+    y0 = make_y0_from_frontend(x_mics, frontend_cfg=frontend_config, stft_cfg=stft_params, data_cfg=data_config)
     prepared = dict(batch)
-    prepared.update({"y0": y0, "y1": y1, "y2": y2, "yt": yt})
+    prepared.update({"y0": y0, "y1": y1, "yt": yt})
+    if model_name == "minimal":
+        mic_index = min(2, x_mics.shape[1] - 1)
+        prepared["y2"] = x_mics[:, mic_index]
     return prepared
 
 
@@ -579,7 +572,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
     print("model_stft " + _format_stft_params(model_stft))
     print("loss_stft " + _format_stft_params(loss_stft))
 
-    sanity_batch = _prepare_batch_for_model(_to_device(eval_batch, device), data_config, model_stft)
+    sanity_batch = _prepare_batch_for_model(_to_device(eval_batch, device), data_config, model_stft, config["frontend"], model_name)
     with torch.no_grad():
         sanity_delta_sisdr = (
             sisdr(sanity_batch["yt"], sanity_batch["y0"]).mean().item()
@@ -654,7 +647,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
 
     for step in progress:
         batch = next(train_iter)
-        batch = _prepare_batch_for_model(_to_device(batch, device), data_config, model_stft)
+        batch = _prepare_batch_for_model(_to_device(batch, device), data_config, model_stft, config["frontend"], model_name)
         y0 = batch["y0"]
         y1 = batch["y1"]
         y2 = batch["y2"]
@@ -767,7 +760,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
             model.eval()
             with torch.no_grad():
                 eval_batch_device = _prepare_batch_for_model(
-                    _to_device(eval_batch, device), data_config, model_stft
+                    _to_device(eval_batch, device), data_config, model_stft, config["frontend"], model_name
                 )
                 y_hat_eval = _forward_model(
                     model,

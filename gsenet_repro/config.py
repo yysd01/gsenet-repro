@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
@@ -43,6 +44,24 @@ DEFAULT_CONFIG: Dict[str, Dict[str, Any]] = {
         "precomputed_y0_root": None,
         "use_precomputed_y0": False,
         "case_filter": None,
+    },
+    "frontend": {
+        "type": "trace_norm",
+        "gate_mode": "sector",
+        "ref_ch": 1,
+        "diag_load_v": 1e-2,
+        "diag_load_x": 1e-3,
+        "eps_trace": 1e-6,
+        "psd_project": True,
+        "alpha_y": 0.92,
+        "alpha_v": 0.98,
+        "sector_half_angle_deg": 60.0,
+        "mic_pairs": [[0, 1], [0, 2], [1, 3]],
+        "theta_s": 0.6,
+        "theta_t": 0.6,
+        "theta_i": 0.4,
+        "theta_n": 0.3,
+        "beta_speech_interf": 0.5,
     },
     "stft_model": {
         "n_fft": 320,
@@ -124,9 +143,22 @@ def resolve_config(
     config_path: str | Path | None, overrides: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
-    config = _deep_merge(config, load_toml(config_path))
+    file_cfg = load_toml(config_path)
+    config = _deep_merge(config, file_cfg)
     if overrides:
         config = _deep_merge(config, overrides)
+
+    data_cfg = config.get("data", {})
+    frontend_cfg = config.setdefault("frontend", {})
+    if "use_mcwf" in data_cfg and "type" not in file_cfg.get("frontend", {}):
+        use_mcwf = int(data_cfg.get("use_mcwf", 1))
+        frontend_cfg["type"] = "mvdr" if use_mcwf == 1 else "none"
+        warnings.warn(
+            "data.use_mcwf is deprecated and mapped to frontend.type",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    frontend_cfg.setdefault("ref_ch", int(data_cfg.get("ref_mic_index", 1)))
     return config
 
 

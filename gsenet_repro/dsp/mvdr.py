@@ -94,6 +94,7 @@ def mvdr_weights(
     R_nn: np.ndarray,
     d: np.ndarray,
     diag_load: float = 1e-2,
+    ref_ch: int = 0,
 ) -> np.ndarray:
     F, C, _ = R_nn.shape
     w = np.zeros((F, C), dtype=np.complex64)
@@ -105,7 +106,7 @@ def mvdr_weights(
         denom = np.vdot(d[f], u)
         if np.abs(denom) < 1e-8:
             w[f] = 0
-            w[f, 0] = 1.0
+            w[f, ref_ch] = 1.0
         else:
             w[f] = u / denom
     return w
@@ -126,5 +127,5 @@ def make_mvdr_y0_stft(
 ) -> np.ndarray:
     rnn = estimate_rnn(X, noise_gate, smoothing=cfg.smoothing_rnn)
     d = estimate_rtf(X, target_gate, ref_ch=cfg.ref_ch, smoothing=cfg.smoothing_rtf)
-    w = mvdr_weights(rnn, d, diag_load=cfg.diag_load)
+    w = mvdr_weights(rnn, d, diag_load=cfg.diag_load, ref_ch=cfg.ref_ch)
     return apply_beamformer(w, X)

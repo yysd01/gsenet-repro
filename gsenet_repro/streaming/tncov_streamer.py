@@ -9,6 +9,8 @@ import numpy as np
 import torch
 
 from gsenet_repro.dsp.rtf_lib import get_d_from_lib, load_rtf_lib
+from gsenet_repro.pipeline.frontend import DEFAULT_MIC_POSITIONS
+from gsenet_repro.pipeline.gates import estimate_sector_gates
 
 
 class TraceNormCovStreamer:
@@ -17,19 +19,23 @@ class TraceNormCovStreamer:
     def __init__(
         self,
         sample_rate: int = 16000,
-        n_fft: int = 256,
-        win_length: int = 256,
-        hop_length: int = 128,
+        n_fft: int = 320,
+        win_length: int = 320,
+        hop_length: int = 160,
         window: str = "hann",
         center: bool = False,
         num_mics: int = 4,
-        ref_ch: int = 0,
+        ref_ch: int = 1,
         alpha_y: float = 0.92,
         alpha_v: float = 0.98,
         diag_load_v: float = 1e-2,
         diag_load_x: float = 1e-3,
         eps_trace: float = 1e-6,
         psd_project: bool = False,
+        gate_mode: str = "vad",
+        sector_half_angle_deg: float = 60.0,
+        mic_pairs: list[list[int]] | None = None,
+        mic_positions: np.ndarray | None = None,
         coh_fmin_hz: float = 200.0,
         coh_fmax_hz: float = 5000.0,
         coh_t0: float = 0.15,
@@ -56,6 +62,10 @@ class TraceNormCovStreamer:
         self.diag_load_x = float(diag_load_x)
         self.eps_trace = float(eps_trace)
         self.psd_project = bool(psd_project)
+        self.gate_mode = str(gate_mode)
+        self.sector_half_angle_deg = float(sector_half_angle_deg)
+        self.mic_pairs = mic_pairs
+        self.mic_positions = DEFAULT_MIC_POSITIONS if mic_positions is None else np.asarray(mic_positions, dtype=np.float32)
         self.coh_t0 = float(coh_t0)
         self.coh_t1 = float(coh_t1)
         self.vad_db_thresh = float(vad_db_thresh)
@@ -77,6 +87,31 @@ class TraceNormCovStreamer:
         self.last_trace_den: Optional[torch.Tensor] = None
         self.last_fallback_ratio: float = 0.0
         self.reset()
+
+    @classmethod
+    def from_config(cls, config: dict) -> "TraceNormCovStreamer":
+        data = config.get("data", {})
+        stft = config.get("stft_model", {})
+        frontend = config.get("frontend", {})
+        ref_ch = int(frontend.get("ref_ch", data.get("ref_mic_index", 1)))
+        return cls(
+            sample_rate=int(data.get("sample_rate", 16000)),
+            n_fft=int(stft.get("n_fft", 320)),
+            win_length=int(stft.get("win_length", 320)),
+            hop_length=int(stft.get("hop_length", 160)),
+            num_mics=int(data.get("num_mics", 4)),
+            ref_ch=ref_ch,
+            alpha_y=float(frontend.get("alpha_y", 0.92)),
+            alpha_v=float(frontend.get("alpha_v", 0.98)),
+            diag_load_v=float(frontend.get("diag_load_v", 1e-2)),
+            diag_load_x=float(frontend.get("diag_load_x", 1e-3)),
+            eps_trace=float(frontend.get("eps_trace", 1e-6)),
+            psd_project=bool(frontend.get("psd_project", False)),
+            gate_mode=str(frontend.get("gate_mode", "vad")),
+            sector_half_angle_deg=float(frontend.get("sector_half_angle_deg", 60.0)),
+            mic_pairs=frontend.get("mic_pairs"),
+            mic_positions=np.asarray(frontend.get("mic_positions", DEFAULT_MIC_POSITIONS), dtype=np.float32),
+        )
 
     def reset(self) -> None:
         self._input_buffer: Optional[torch.Tensor] = None
@@ -155,18 +190,33 @@ class TraceNormCovStreamer:
         evals = torch.clamp(evals.real, min=0.0)
         return torch.matmul(evecs * evals.unsqueeze(-2), evecs.conj().transpose(-1, -2))
 
-    def _noise_gate(self, x_fc: torch.Tensor, band_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.rtf_lib is not None and self.target_doa is not None and self._d is not None:
+    def _noise_gate(self, x_fc: torch.Tensor, band_mask: torch.Tensor, frame_time: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.gate_mode == "coherence":
+            if self.rtf_lib is None or self.target_doa is None or self._d is None:
+                raise ValueError("gate_mode='coherence' requires loaded rtf_lib and target_doa")
             d = self._d.to(device=x_fc.device)
             proj = torch.sum(d.conj() * x_fc, dim=-1)
             d_norm = torch.sum(d.conj() * d, dim=-1).real
             x_norm = torch.sum(x_fc.conj() * x_fc, dim=-1).real
             coh = (proj.abs() ** 2) / (d_norm * x_norm + 1e-8)
             score = coh[band_mask].mean() if band_mask.any() else coh.mean()
-            target_like = torch.clamp(
-                (score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0
-            )
+            target_like = torch.clamp((score - self.coh_t0) / max(self.coh_t1 - self.coh_t0, 1e-8), 0.0, 1.0)
             return 1.0 - target_like, target_like
+        if self.gate_mode == "sector":
+            x_np = frame_time.squeeze(0).detach().cpu().numpy()
+            target, noise = estimate_sector_gates(
+                x_np,
+                sample_rate=self.sample_rate,
+                hop_length=self.win_length,
+                win_length=self.win_length,
+                mic_positions=self.mic_positions,
+                ref_ch=self.ref_ch,
+                mic_pairs=self.mic_pairs,
+                sector_half_angle_deg=self.sector_half_angle_deg,
+            )
+            target_like = torch.tensor(float(target[0]), device=x_fc.device, dtype=torch.float32)
+            noise_gate = torch.tensor(float(noise[0]), device=x_fc.device, dtype=torch.float32)
+            return noise_gate, target_like
 
         frame_power = torch.mean(torch.abs(x_fc) ** 2)
         frame_db = 10.0 * torch.log10(frame_power + 1e-12)
@@ -232,7 +282,7 @@ class TraceNormCovStreamer:
             spectrum = torch.fft.rfft(windowed, n=self.n_fft, dim=-1).transpose(1, 2)  # (1,F,C)
             x_fc = spectrum.squeeze(0)
 
-            noise_gate, target_like = self._noise_gate(x_fc, band_mask)
+            noise_gate, target_like = self._noise_gate(x_fc, band_mask, frame)
             xxh = x_fc.unsqueeze(-1) * x_fc.conj().unsqueeze(-2)
 
             self._phi_y = self.alpha_y * self._phi_y + (1.0 - self.alpha_y) * xxh
