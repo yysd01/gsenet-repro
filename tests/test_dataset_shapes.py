@@ -19,21 +19,26 @@ def test_paper_like_dataset_shapes() -> None:
     loader = DataLoader(dataset, batch_size=2)
     batch = next(iter(loader))
 
-    y0 = batch["y0"]
     y1 = batch["y1"]
     yt = batch["yt"]
     x_mics = batch["x_mics"]
 
-    assert y0.ndim == 2
+    assert "y0" not in batch
     assert y1.ndim == 2
     assert yt.ndim == 2
-    assert y0.shape == y1.shape == yt.shape
-    assert x_mics.shape[0] == y0.shape[0]
+    assert y1.shape == yt.shape
+    assert x_mics.shape[0] == y1.shape[0]
     assert x_mics.shape[1] == 4
-    assert x_mics.shape[2] == y0.shape[1]
-    assert torch.isfinite(y0).all()
+    assert x_mics.shape[2] == y1.shape[1]
     assert torch.isfinite(y1).all()
     assert torch.isfinite(yt).all()
+
+
+def test_paper_like_dataset_legacy_targets_optional() -> None:
+    dataset = PaperLikeDataset(sample_rate=8000, segment_seconds=0.25, seed=0, num_samples=1, include_legacy_targets=True)
+    sample = next(iter(dataset))
+    assert "y2" in sample
+    assert "y3" in sample
 
 
 def test_rir_close_mic_direct_path_delay_4mic() -> None:

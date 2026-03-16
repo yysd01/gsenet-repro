@@ -237,7 +237,7 @@ def _prepare_batch_for_model(
     model_name: str,
 ) -> Dict[str, torch.Tensor]:
     if "x_mics" not in batch:
-        return batch
+        raise ValueError("Batch must include x_mics; y0 is generated only via make_y0_from_frontend.")
     x_mics = batch["x_mics"]
     y1 = batch["y1"]
     yt = batch["yt"]
@@ -248,6 +248,12 @@ def _prepare_batch_for_model(
         mic_index = min(2, x_mics.shape[1] - 1)
         prepared["y2"] = x_mics[:, mic_index]
     return prepared
+
+
+def _maybe_get_y2(prepared_batch: Dict[str, torch.Tensor], model_name: str) -> torch.Tensor | None:
+    if model_name != "minimal":
+        return None
+    return prepared_batch.get("y2")
 
 
 def _save_checkpoint(
@@ -650,7 +656,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
         batch = _prepare_batch_for_model(_to_device(batch, device), data_config, model_stft, config["frontend"], model_name)
         y0 = batch["y0"]
         y1 = batch["y1"]
-        y2 = batch["y2"]
+        y2 = _maybe_get_y2(batch, model_name)
         yt = batch["yt"]
 
         model.train()
@@ -767,7 +773,7 @@ def train_with_config(config: Dict[str, object], config_path: str | None = None)
                     model_name,
                     eval_batch_device["y0"],
                     eval_batch_device["y1"],
-                    eval_batch_device.get("y2"),
+                    _maybe_get_y2(eval_batch_device, model_name),
                 )
                 eval_loss = stft_magnitude_loss(
                     y_hat_eval, eval_batch_device["yt"], stft_params=loss_stft

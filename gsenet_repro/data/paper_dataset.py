@@ -12,7 +12,6 @@ from gsenet_repro.data.paper_synth import (
     synthesize_y_mics_yt,
 )
 from gsenet_repro.dsp import MODEL_STFT
-from gsenet_repro.pipeline.mcwf_frontend import mcwf_make_y0
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     import torch
@@ -23,7 +22,7 @@ else:  # pragma: no cover
 
 
 class PaperLikeDataset(IterableDataset):
-    """On-the-fly paper-like dataset aligned with paper_synth.py (Section 2.1/Table 1)."""
+    """On-the-fly paper-like dataset that provides raw mixture/target waveforms."""
 
     def __init__(
         self,
@@ -32,6 +31,7 @@ class PaperLikeDataset(IterableDataset):
         seed: int = 0,
         num_samples: Optional[int] = None,
         use_mcwf: bool = True,
+        include_legacy_targets: bool = False,
         ref_mic: int = 1,
         num_mics: int = 4,
         stft_params: Optional[Dict[str, int]] = None,
@@ -49,7 +49,8 @@ class PaperLikeDataset(IterableDataset):
         self.length = int(round(self.sample_rate * self.segment_seconds))
         self.seed = int(seed)
         self.num_samples = num_samples
-        self.use_mcwf = bool(use_mcwf)  # legacy flag; now selects MVDR frontend
+        self.use_mcwf = bool(use_mcwf)  # legacy compatibility only; frontend now owns y0 generation
+        self.include_legacy_targets = bool(include_legacy_targets)
         self.ref_mic = int(ref_mic)
         self.num_mics = int(num_mics)
         if self.num_mics < 2:
@@ -96,29 +97,18 @@ class PaperLikeDataset(IterableDataset):
 
         x_mics = np.stack(list(y_mics), axis=0).astype(np.float32)
         y1 = x_mics[self.ref_mic]
-        if self.use_mcwf:
-            y0 = mcwf_make_y0(
-                x_mics,
-                stft_params=self.stft_params,
-                causal_frames=self.causal_frames,
-                ref_ch=self.ref_mic,
-                sample_rate=self.sample_rate,
-                mic_positions=self.mic_positions,
-            )
-        else:
-            y0 = y1
 
-        y2 = x_mics[min(2, self.num_mics - 1)]
-        y3 = x_mics[min(3, self.num_mics - 1)]
-
-        return {
-            "y0": torch.tensor(y0, dtype=torch.float32),
+        sample = {
             "y1": torch.tensor(y1, dtype=torch.float32),
-            "y2": torch.tensor(y2, dtype=torch.float32),
-            "y3": torch.tensor(y3, dtype=torch.float32),
             "yt": torch.tensor(yt, dtype=torch.float32),
             "x_mics": torch.tensor(x_mics, dtype=torch.float32),
         }
+        if self.include_legacy_targets:
+            y2 = x_mics[min(2, self.num_mics - 1)]
+            y3 = x_mics[min(3, self.num_mics - 1)]
+            sample["y2"] = torch.tensor(y2, dtype=torch.float32)
+            sample["y3"] = torch.tensor(y3, dtype=torch.float32)
+        return sample
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         worker = torch.utils.data.get_worker_info()

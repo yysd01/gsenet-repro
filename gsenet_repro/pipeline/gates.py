@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Sequence
 
 import numpy as np
 
 from gsenet_repro.dsp.rtf_lib import get_d_from_lib, load_rtf_lib
+
+if importlib.util.find_spec("torch") is not None:  # pragma: no cover
+    import torch
+else:  # pragma: no cover
+    torch = None
 
 DEFAULT_MIC_PAIRS: tuple[tuple[int, int], ...] = ((0, 1), (0, 2), (1, 3))
 
@@ -115,12 +121,13 @@ def estimate_vad_gates(
     return (1.0 - noise_gate).astype(np.float32), noise_gate
 
 
-def estimate_coherence_gates(
+def coherence_target_like_np(
     X: np.ndarray,
     *,
     d: np.ndarray,
     coh_t0: float = 0.15,
     coh_t1: float = 0.35,
+    freq_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     d = np.asarray(d)
     if d.shape != (X.shape[0], X.shape[2]):
@@ -129,8 +136,49 @@ def estimate_coherence_gates(
     d_norm = np.sum(np.conjugate(d) * d, axis=-1).real[:, None]
     x_norm = np.sum(np.conjugate(X) * X, axis=-1).real
     coh = (np.abs(proj) ** 2) / (d_norm * x_norm + 1e-8)
-    score = coh.mean(axis=0)
+    if freq_mask is not None:
+        mask = np.asarray(freq_mask, dtype=bool)
+        coh_sel = coh[mask] if np.any(mask) else coh
+    else:
+        coh_sel = coh
+    score = coh_sel.mean(axis=0)
     target = np.clip((score - float(coh_t0)) / max(float(coh_t1) - float(coh_t0), 1e-8), 0.0, 1.0).astype(np.float32)
+    return target, score.astype(np.float32)
+
+
+def coherence_target_like_torch(
+    x_fc: "torch.Tensor",
+    *,
+    d_fc: "torch.Tensor",
+    coh_t0: float = 0.15,
+    coh_t1: float = 0.35,
+    freq_mask: "torch.Tensor | None" = None,
+) -> tuple["torch.Tensor", "torch.Tensor"]:
+    if torch is None:
+        raise ImportError("coherence_target_like_torch requires torch")
+    if d_fc.shape != x_fc.shape:
+        raise ValueError("coherence steering vector must have shape (F,C)")
+    proj = torch.sum(d_fc.conj() * x_fc, dim=-1)
+    d_norm = torch.sum(d_fc.conj() * d_fc, dim=-1).real
+    x_norm = torch.sum(x_fc.conj() * x_fc, dim=-1).real
+    coh = (proj.abs() ** 2) / (d_norm * x_norm + 1e-8)
+    if freq_mask is not None:
+        coh_sel = coh[freq_mask] if torch.any(freq_mask) else coh
+    else:
+        coh_sel = coh
+    score = coh_sel.mean()
+    target = torch.clamp((score - float(coh_t0)) / max(float(coh_t1) - float(coh_t0), 1e-8), 0.0, 1.0)
+    return target.to(torch.float32), score.to(torch.float32)
+
+
+def estimate_coherence_gates(
+    X: np.ndarray,
+    *,
+    d: np.ndarray,
+    coh_t0: float = 0.15,
+    coh_t1: float = 0.35,
+) -> tuple[np.ndarray, np.ndarray]:
+    target, _ = coherence_target_like_np(X, d=d, coh_t0=coh_t0, coh_t1=coh_t1)
     noise = (1.0 - target).astype(np.float32)
     return target, noise
 

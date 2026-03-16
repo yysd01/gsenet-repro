@@ -85,6 +85,59 @@ def test_streaming_trace_norm_stft_mismatch_rejected() -> None:
         TraceNormCovStreamer.from_config(cfg)
 
 
+def test_prepare_batch_paper_scale_and_forward_without_y2() -> None:
+    torch = pytest.importorskip("torch")
+    from scripts.train_paper_like_full import _forward_model, _prepare_batch_for_model
+
+    class DummyPaper(torch.nn.Module):
+        def forward(self, y0, y1):
+            return y0 + y1
+
+    rng = np.random.default_rng(3)
+    x = torch.from_numpy(rng.normal(size=(2, 4, 640)).astype(np.float32))
+    batch = {"x_mics": x, "y1": x[:, 1], "yt": x[:, 0]}
+    data_cfg = {"sample_rate": 16000, "ref_mic_index": 1}
+    stft_cfg = {"n_fft": 320, "win_length": 320, "hop_length": 160}
+    frontend_cfg = {"type": "trace_norm", "gate_mode": "vad", "ref_ch": 1}
+    prepared = _prepare_batch_for_model(batch, data_cfg, stft_cfg, frontend_cfg, "gsenet_paper_scale")
+
+    assert "y0" in prepared
+    assert "y2" not in prepared
+    y_hat = _forward_model(DummyPaper(), "gsenet_paper_scale", prepared["y0"], prepared["y1"], None)
+    assert y_hat.shape == prepared["y0"].shape
+
+
+def test_prepare_batch_minimal_adds_y2() -> None:
+    torch = pytest.importorskip("torch")
+    from scripts.train_paper_like_full import _prepare_batch_for_model
+
+    rng = np.random.default_rng(4)
+    x = torch.from_numpy(rng.normal(size=(2, 4, 640)).astype(np.float32))
+    batch = {"x_mics": x, "y1": x[:, 1], "yt": x[:, 0]}
+    data_cfg = {"sample_rate": 16000, "ref_mic_index": 1}
+    stft_cfg = {"n_fft": 320, "win_length": 320, "hop_length": 160}
+    frontend_cfg = {"type": "trace_norm", "gate_mode": "vad", "ref_ch": 1}
+    prepared = _prepare_batch_for_model(batch, data_cfg, stft_cfg, frontend_cfg, "minimal")
+
+    assert "y0" in prepared
+    assert "y2" in prepared
+    assert prepared["y2"].shape == prepared["y1"].shape
+
+
+def test_streaming_trace_norm_ref_channel_fallback() -> None:
+    torch = pytest.importorskip("torch")
+    from gsenet_repro.dsp.trace_norm import trace_norm_weights_torch
+
+    F, C = 6, 4
+    phi_v = torch.zeros((F, C, C), dtype=torch.complex64)
+    phi_x = torch.zeros((F, C, C), dtype=torch.complex64)
+    w, _, _ = trace_norm_weights_torch(phi_v, phi_x, ref_ch=2, eps_trace=1e-6)
+
+    expected = torch.zeros((F, C), dtype=torch.complex64)
+    expected[:, 2] = 1.0 + 0.0j
+    assert torch.allclose(w, expected)
+
+
 def test_legacy_use_mcwf_config_is_mapped() -> None:
     with warnings.catch_warnings(record=True) as rec:
         warnings.simplefilter("always")

@@ -27,6 +27,7 @@ def test_real_dataset_manifest_slice() -> None:
     sample = dataset[0]
     x_mics = sample["x_mics"]
     yt = sample["yt"]
+    assert "y0" not in sample
     assert x_mics.shape[0] == 4
     assert x_mics.shape[1] == yt.shape[0]
     assert np.isfinite(x_mics).all()
@@ -56,3 +57,17 @@ def test_real_dataset_manifest_dataloader() -> None:
     import torch
 
     assert torch.isfinite(batch["x_mics"]).all()
+
+
+def test_real_dataset_legacy_targets_optional() -> None:
+    manifest_path = _make_dummy_manifest()
+    dataset = RealMultichannelDataset(
+        manifest_path=str(manifest_path),
+        sample_rate=16000,
+        segment_seconds=0.25,
+        num_mics=4,
+        ref_mic_index=0,
+        include_legacy_targets=True,
+    )
+    sample = dataset[0]
+    assert "y2" in sample

@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 
 from gsenet_repro.dsp.stft import istft, stft
+
+if importlib.util.find_spec("torch") is not None:  # pragma: no cover
+    import torch
+else:  # pragma: no cover
+    torch = None
 
 
 def hermitian_np(m: np.ndarray) -> np.ndarray:
@@ -94,6 +101,69 @@ def trace_norm_weights(
         w_fb[:, ref_ch] = 1.0 + 0.0j
         w[invalid] = w_fb[invalid]
     return w.astype(np.complex64)
+
+
+def hermitian_torch(m: "torch.Tensor") -> "torch.Tensor":
+    if torch is None:
+        raise ImportError("hermitian_torch requires torch")
+    return 0.5 * (m + m.conj().transpose(-1, -2))
+
+
+def diag_load_torch(m: "torch.Tensor", load: float) -> "torch.Tensor":
+    if torch is None:
+        raise ImportError("diag_load_torch requires torch")
+    c = m.shape[-1]
+    tr = m.diagonal(dim1=-2, dim2=-1).sum(dim=-1).real / float(c)
+    eye = torch.eye(c, dtype=m.dtype, device=m.device).unsqueeze(0)
+    return m + (float(load) * tr).unsqueeze(-1).unsqueeze(-1) * eye
+
+
+def psd_project_torch(m: "torch.Tensor") -> "torch.Tensor":
+    if torch is None:
+        raise ImportError("psd_project_torch requires torch")
+    evals, evecs = torch.linalg.eigh(hermitian_torch(m))
+    evals = torch.clamp(evals.real, min=0.0)
+    return torch.matmul(evecs * evals.unsqueeze(-2), evecs.conj().transpose(-1, -2))
+
+
+def trace_norm_weights_torch(
+    phi_v: "torch.Tensor",
+    phi_x: "torch.Tensor",
+    *,
+    ref_ch: int,
+    diag_load_v: float = 1e-2,
+    diag_load_x: float = 1e-3,
+    eps_trace: float = 1e-6,
+    psd_project: bool = True,
+) -> tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
+    if torch is None:
+        raise ImportError("trace_norm_weights_torch requires torch")
+    c = phi_v.shape[-1]
+    ref_idx = int(np.clip(ref_ch, 0, c - 1))
+
+    phi_v_loaded = diag_load_torch(hermitian_torch(phi_v), diag_load_v)
+    phi_xh = hermitian_torch(phi_x)
+    if psd_project:
+        phi_xh = psd_project_torch(phi_xh)
+    phi_x_loaded = diag_load_torch(phi_xh, diag_load_x)
+
+    eye = torch.eye(c, dtype=phi_v.dtype, device=phi_v.device).unsqueeze(0)
+    try:
+        A = torch.linalg.solve(phi_v_loaded, phi_x_loaded)
+    except RuntimeError:
+        A = torch.linalg.solve(phi_v_loaded + 1e-3 * eye, phi_x_loaded)
+
+    tau = A.diagonal(dim1=-2, dim2=-1).sum(dim=-1)
+    den_real = tau.real
+    den = torch.clamp(den_real, min=float(eps_trace))
+    w = A[..., ref_idx] / den.unsqueeze(-1)
+
+    invalid = (~torch.isfinite(w).all(dim=-1)) | (~torch.isfinite(den_real)) | (den_real <= float(eps_trace))
+    if torch.any(invalid):
+        w_fb = torch.zeros_like(w)
+        w_fb[:, ref_idx] = 1.0 + 0.0j
+        w = torch.where(invalid.unsqueeze(-1), w_fb, w)
+    return w, den_real, invalid
 
 
 def apply_beamformer_np(w: np.ndarray, X: np.ndarray) -> np.ndarray:
