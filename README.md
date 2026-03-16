@@ -154,6 +154,7 @@ python scripts/run.py <subcommand> ...
 - `diag-gates`：运行 gate 诊断并导出 `gates.npz`/`y0.wav`/`y1.wav`。
 - `prep-oppo-y0`：对 Oppo 4ch clean/noise/noisy 三元组执行监督式 MVDR/LCMV，离线导出 `y0`。
 - `stream-mvdr`：在线 MVDR 流式处理 4ch wav 并输出 `y0.wav`。
+- `stream-tncov`：在线 Trace-Normalized Covariance Beamformer 流式处理 4ch wav 并输出 `y0_tncov.wav`。
 
 常用示例：
 
@@ -163,6 +164,7 @@ python scripts/run.py diag-gates --wav <从 out-root 导出的 noisy wav>
 python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps 2000
 python scripts/run.py test -- --run_dir <...>
 python scripts/run.py stream-mvdr -- --wav4ch path/to/4ch.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0
+python scripts/run.py stream-tncov -- --wav4ch path/to/4ch.wav --out artifacts/y0_tncov.wav --rtf-lib artifacts/oppo_y0/rtf_lib_oppo_binsize1.npz --doa 0
 ```
 
 `diag-gates` 会打印并导出关键字段：
@@ -327,3 +329,50 @@ python scripts/run.py train -- --config configs/paper_like_4mic.toml --num_steps
 ```
 
 `smoke_train_paper_like.py` 会使用扩展后的合成数据进行联合训练，训练过程中每 5 个 epoch 打印一次 SNR/训练损失/验证损失，并在测试集上输出每个样本的 SNR 提升与音质评分。由于项目保持纯 numpy/scipy 依赖，PESQ/STOI 使用 `gsenet_repro/eval/metrics.py` 中的 proxy 实现，用于回归测试和相对对比。
+
+## Trace-Normalized Covariance Beamformer (streaming)
+
+新增 `TraceNormCovStreamer`（`gsenet_repro/streaming/tncov_streamer.py`）与脚本 `scripts/stream_tncov.py`，沿用 MVDR streamer 的流式 STFT + 单帧 iSTFT + OLA 框架，但将权重替换为 trace-normalized covariance 形式：
+
+```text
+w(f) = Φ_v(f)^{-1} Φ_x(f) u_ref / tr( Φ_v(f)^{-1} Φ_x(f) )
+Φ_x(f) = Φ_y(f) - Φ_v(f),  u_ref=[1,0,0,0]^T (ref_ch=0)
+```
+
+实现细节：
+
+- 不显式求逆，使用 `torch.linalg.solve(Φ_v, Φ_x)`。
+- 归一化分母使用 `trace.real`，并用 `eps_trace` 下限截断。
+- 分母过小/数值异常时回退到直通参考麦（fallback）。
+- `Φ_y/Φ_v` 均为逐帧 EMA 在线更新，`Φ_v` 支持两种门控来源：
+  - 提供 `--rtf-lib` + `--doa` 时，基于与 MVDR 一致的 coherence-like score 做 target/noise gate。
+  - 未提供导向时，使用能量 VAD logistic 门控（`--vad-db-thresh`, `--vad-smooth`）。
+- 稳健性：Hermitian 对称化 + diagonal loading（`diag_load_v`, `diag_load_x`）；可选 `--psd-project` 对 `Φ_x` 做 PSD 投影（会增加特征分解开销，实时场景默认建议关闭）。
+
+与 MVDR/LCMV 的区别：
+
+- MVDR：`w ∝ Φ_v^{-1} d`，保持目标导向向量无失真约束。
+- LCMV：在多个线性约束下求最小输出功率。
+- TraceNormCov：显式利用 `Φ_x = Φ_y - Φ_v` 的目标统计，并用 trace 归一化整体增益，更偏向统计比值驱动；在目标协方差估计偏差较大时建议提高 `alpha_v`、适度增大 `diag_load_v`。
+
+推荐起始参数（16 kHz, 4ch, n_fft=256）：
+
+- `alpha_y=0.92`, `alpha_v=0.98`
+- `diag_load_v=1e-2`, `diag_load_x=1e-3`
+- `coh_fmin=200`, `coh_fmax=5000`, `coh_t0=0.15`, `coh_t1=0.35`
+- `psd_project=false`（低延迟优先）；若观测到 `Φ_x` 明显不稳定可开启
+
+可运行示例：
+
+```bash
+PYTHONPATH="$(pwd)" python scripts/stream_tncov.py \
+  --wav4ch /path/to/4ch.wav \
+  --out artifacts/y0_tncov.wav \
+  --rtf-lib artifacts/rtf_lib_phone_geom_binsize1.npz \
+  --doa 31 \
+  --alpha-y 0.92 --alpha-v 0.98 \
+  --diag-load-v 1e-2 --diag-load-x 1e-3 \
+  --coh-fmin 200 --coh-fmax 5000 \
+  --coh-t0 0.15 --coh-t1 0.35 \
+  --psd-project false
+```
