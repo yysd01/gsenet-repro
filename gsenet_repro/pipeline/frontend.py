@@ -9,7 +9,12 @@ from gsenet_repro.dsp import MODEL_STFT
 from gsenet_repro.dsp.mvdr import MVDRConfig, make_mvdr_y0_stft
 from gsenet_repro.dsp.stft import istft, stft
 from gsenet_repro.dsp.trace_norm import make_trace_norm_y0_stft
-from gsenet_repro.pipeline.gates import estimate_sector_gates, estimate_vad_gates
+from gsenet_repro.pipeline.gates import (
+    estimate_coherence_gates,
+    estimate_sector_gates,
+    estimate_vad_gates,
+    resolve_coherence_steering,
+)
 
 if importlib.util.find_spec("torch") is not None:  # pragma: no cover
     import torch
@@ -31,25 +36,6 @@ def _match_frames(g: np.ndarray, frames: int, *, fill_value: float) -> np.ndarra
     if g.shape[0] == 0:
         return np.full((frames,), fill_value, dtype=np.float32)
     return np.pad(g, (0, frames - g.shape[0]), mode="edge").astype(np.float32)
-
-
-def _coherence_gate(X: np.ndarray, frontend_cfg: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
-    d = frontend_cfg.get("d")
-    if d is None:
-        raise ValueError("gate_mode='coherence' requires frontend_cfg['d'] (or rtf_lib/target_doa wiring)")
-    d = np.asarray(d)
-    if d.shape != (X.shape[0], X.shape[2]):
-        raise ValueError("frontend_cfg['d'] must have shape (F,C)")
-    proj = np.sum(np.conjugate(d)[:, None, :] * X, axis=-1)
-    d_norm = np.sum(np.conjugate(d) * d, axis=-1).real[:, None]
-    x_norm = np.sum(np.conjugate(X) * X, axis=-1).real
-    coh = (np.abs(proj) ** 2) / (d_norm * x_norm + 1e-8)
-    score = coh.mean(axis=0)
-    t0 = float(frontend_cfg.get("coh_t0", 0.15))
-    t1 = float(frontend_cfg.get("coh_t1", 0.35))
-    target = np.clip((score - t0) / max(t1 - t0, 1e-8), 0.0, 1.0).astype(np.float32)
-    noise = (1.0 - target).astype(np.float32)
-    return target, noise
 
 
 def _estimate_gates(
@@ -90,7 +76,13 @@ def _estimate_gates(
         )
         return _match_frames(target, X.shape[1], fill_value=1.0), _match_frames(noise, X.shape[1], fill_value=1.0)
     if mode == "coherence":
-        return _coherence_gate(X, frontend_cfg)
+        d = resolve_coherence_steering(X, frontend_cfg)
+        return estimate_coherence_gates(
+            X,
+            d=d,
+            coh_t0=float(frontend_cfg.get("coh_t0", 0.15)),
+            coh_t1=float(frontend_cfg.get("coh_t1", 0.35)),
+        )
     raise ValueError(f"Unknown gate_mode: {mode}")
 
 

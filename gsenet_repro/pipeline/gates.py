@@ -4,6 +4,8 @@ from typing import Sequence
 
 import numpy as np
 
+from gsenet_repro.dsp.rtf_lib import get_d_from_lib, load_rtf_lib
+
 DEFAULT_MIC_PAIRS: tuple[tuple[int, int], ...] = ((0, 1), (0, 2), (1, 3))
 
 
@@ -111,3 +113,43 @@ def estimate_vad_gates(
     z = (float(vad_db_thresh) - frame_db) / max(float(vad_smooth), 1e-6)
     noise_gate = (1.0 / (1.0 + np.exp(-z))).astype(np.float32)
     return (1.0 - noise_gate).astype(np.float32), noise_gate
+
+
+def estimate_coherence_gates(
+    X: np.ndarray,
+    *,
+    d: np.ndarray,
+    coh_t0: float = 0.15,
+    coh_t1: float = 0.35,
+) -> tuple[np.ndarray, np.ndarray]:
+    d = np.asarray(d)
+    if d.shape != (X.shape[0], X.shape[2]):
+        raise ValueError("coherence steering vector must have shape (F,C)")
+    proj = np.sum(np.conjugate(d)[:, None, :] * X, axis=-1)
+    d_norm = np.sum(np.conjugate(d) * d, axis=-1).real[:, None]
+    x_norm = np.sum(np.conjugate(X) * X, axis=-1).real
+    coh = (np.abs(proj) ** 2) / (d_norm * x_norm + 1e-8)
+    score = coh.mean(axis=0)
+    target = np.clip((score - float(coh_t0)) / max(float(coh_t1) - float(coh_t0), 1e-8), 0.0, 1.0).astype(np.float32)
+    noise = (1.0 - target).astype(np.float32)
+    return target, noise
+
+
+def resolve_coherence_steering(X: np.ndarray, frontend_cfg: dict) -> np.ndarray:
+    d = frontend_cfg.get("d")
+    if d is not None:
+        d_arr = np.asarray(d)
+        if d_arr.shape != (X.shape[0], X.shape[2]):
+            raise ValueError("frontend_cfg['d'] must have shape (F,C)")
+        return d_arr
+
+    if "rtf_lib_path" in frontend_cfg and "target_doa" in frontend_cfg:
+        lib = load_rtf_lib(frontend_cfg["rtf_lib_path"])
+        missing = tuple(lib.get("missing_metadata", ()))
+        if missing:
+            raise ValueError(f"rtf_lib is missing metadata {missing}")
+        return get_d_from_lib(lib, int(frontend_cfg["target_doa"]))
+
+    raise ValueError(
+        "gate_mode='coherence' requires frontend_cfg['d'] or both frontend_cfg['rtf_lib_path'] and frontend_cfg['target_doa']"
+    )
