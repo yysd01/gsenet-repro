@@ -106,7 +106,8 @@ def _diag_gates(args: argparse.Namespace) -> None:
     import soundfile as sf
 
     from gsenet_repro.config import resolve_config
-    from gsenet_repro.pipeline.mcwf_frontend import _estimate_gates, mcwf_make_y0
+    from gsenet_repro.pipeline.frontend import make_y0_from_frontend
+    from gsenet_repro.pipeline.mcwf_frontend import _estimate_gates
 
     cfg = resolve_config(args.config)
     sample_rate = int(args.sample_rate or cfg["data"]["sample_rate"])
@@ -173,12 +174,12 @@ def _diag_gates(args: argparse.Namespace) -> None:
     export_dir.mkdir(parents=True, exist_ok=True)
 
     y1 = x_mics[ref_ch]
-    y0 = mcwf_make_y0(
+    frontend_cfg = {"type": "mvdr", "ref_ch": ref_ch}
+    y0 = make_y0_from_frontend(
         x_mics,
-        stft_params=stft_cfg,
-        ref_ch=ref_ch,
-        sample_rate=sample_rate,
-        mic_positions=mic_positions,
+        frontend_cfg=frontend_cfg,
+        stft_cfg=stft_cfg,
+        data_cfg={"sample_rate": sample_rate, "mic_positions": mic_positions.tolist(), "ref_mic_index": ref_ch},
     )
 
     np.savez(

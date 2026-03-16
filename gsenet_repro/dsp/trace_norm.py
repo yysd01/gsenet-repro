@@ -12,6 +12,21 @@ else:  # pragma: no cover
     torch = None
 
 
+DEFAULT_SOLVE_FALLBACK_JITTER = 1e-3
+
+
+def _as_batched_covariance_torch(m: "torch.Tensor") -> tuple["torch.Tensor", bool]:
+    if m.ndim == 2:
+        return m.unsqueeze(0), True
+    if m.ndim == 3:
+        return m, False
+    raise ValueError(f"Expected covariance shape (C, C) or (F, C, C), got {tuple(m.shape)}")
+
+
+def _restore_covariance_shape_torch(m: "torch.Tensor", squeeze: bool) -> "torch.Tensor":
+    return m.squeeze(0) if squeeze else m
+
+
 def hermitian_np(m: np.ndarray) -> np.ndarray:
     return 0.5 * (m + np.swapaxes(np.conjugate(m), -1, -2))
 
@@ -104,26 +119,57 @@ def trace_norm_weights(
 
 
 def hermitian_torch(m: "torch.Tensor") -> "torch.Tensor":
+    """Return Hermitian symmetrization for covariance tensors.
+
+    Args:
+        m: Covariance tensor with shape ``(C, C)`` or ``(F, C, C)``.
+
+    Returns:
+        Tensor with the same shape as input.
+    """
     if torch is None:
         raise ImportError("hermitian_torch requires torch")
-    return 0.5 * (m + m.conj().transpose(-1, -2))
+    mb, squeeze = _as_batched_covariance_torch(m)
+    hb = 0.5 * (mb + mb.conj().transpose(-1, -2))
+    return _restore_covariance_shape_torch(hb, squeeze)
 
 
 def diag_load_torch(m: "torch.Tensor", load: float) -> "torch.Tensor":
+    """Apply trace-proportional diagonal loading.
+
+    Args:
+        m: Covariance tensor with shape ``(C, C)`` or ``(F, C, C)``.
+        load: Scalar loading factor.
+
+    Returns:
+        Tensor with same shape as input after diagonal loading.
+    """
     if torch is None:
         raise ImportError("diag_load_torch requires torch")
-    c = m.shape[-1]
-    tr = m.diagonal(dim1=-2, dim2=-1).sum(dim=-1).real / float(c)
-    eye = torch.eye(c, dtype=m.dtype, device=m.device).unsqueeze(0)
-    return m + (float(load) * tr).unsqueeze(-1).unsqueeze(-1) * eye
+    mb, squeeze = _as_batched_covariance_torch(m)
+    c = mb.shape[-1]
+    tr = mb.diagonal(dim1=-2, dim2=-1).sum(dim=-1).real / float(c)
+    eye = torch.eye(c, dtype=mb.dtype, device=mb.device).unsqueeze(0)
+    out = mb + (float(load) * tr).unsqueeze(-1).unsqueeze(-1) * eye
+    return _restore_covariance_shape_torch(out, squeeze)
 
 
 def psd_project_torch(m: "torch.Tensor") -> "torch.Tensor":
+    """Project covariance tensor to the positive semidefinite cone.
+
+    Args:
+        m: Covariance tensor with shape ``(C, C)`` or ``(F, C, C)``.
+
+    Returns:
+        Tensor with same shape as input after eigenvalue clipping.
+    """
     if torch is None:
         raise ImportError("psd_project_torch requires torch")
-    evals, evecs = torch.linalg.eigh(hermitian_torch(m))
+    mb, squeeze = _as_batched_covariance_torch(m)
+    evals, evecs = torch.linalg.eigh(hermitian_torch(mb))
     evals = torch.clamp(evals.real, min=0.0)
-    return torch.matmul(evecs * evals.unsqueeze(-2), evecs.conj().transpose(-1, -2))
+    out = torch.matmul(evecs * evals.unsqueeze(-2), evecs.conj().transpose(-1, -2))
+    return _restore_covariance_shape_torch(out, squeeze)
 
 
 def trace_norm_weights_torch(
@@ -135,23 +181,46 @@ def trace_norm_weights_torch(
     diag_load_x: float = 1e-3,
     eps_trace: float = 1e-6,
     psd_project: bool = True,
+    solve_fallback_jitter: float = DEFAULT_SOLVE_FALLBACK_JITTER,
 ) -> tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
+    """Compute trace-normalized beamforming weights.
+
+    Args:
+        phi_v: Noise covariance with shape ``(C, C)`` or ``(F, C, C)``.
+        phi_x: Speech covariance with shape ``(C, C)`` or ``(F, C, C)``.
+        ref_ch: Reference channel index used to select ``A[..., ref_ch]``.
+        diag_load_v: Diagonal load for ``phi_v``.
+        diag_load_x: Diagonal load for ``phi_x``.
+        eps_trace: Minimum real trace in denominator clamp.
+        psd_project: Whether to PSD-project ``phi_x`` before solve.
+        solve_fallback_jitter: Extra identity load used only if initial solve fails.
+
+    Returns:
+        ``(w, den_real, invalid)`` where each has shape ``(C,)``/``()``/``()`` for
+        single covariance input and ``(F, C)``/``(F,)``/``(F,)`` for batched input.
+        Invalid bins fall back to a one-hot reference-channel weight.
+    """
     if torch is None:
         raise ImportError("trace_norm_weights_torch requires torch")
-    c = phi_v.shape[-1]
+    phi_vb, squeeze = _as_batched_covariance_torch(phi_v)
+    phi_xb, squeeze_x = _as_batched_covariance_torch(phi_x)
+    if squeeze != squeeze_x:
+        raise ValueError("phi_v and phi_x must both be 2D or both be 3D covariance tensors")
+
+    c = phi_vb.shape[-1]
     ref_idx = int(np.clip(ref_ch, 0, c - 1))
 
-    phi_v_loaded = diag_load_torch(hermitian_torch(phi_v), diag_load_v)
-    phi_xh = hermitian_torch(phi_x)
+    phi_v_loaded = diag_load_torch(hermitian_torch(phi_vb), diag_load_v)
+    phi_xh = hermitian_torch(phi_xb)
     if psd_project:
         phi_xh = psd_project_torch(phi_xh)
     phi_x_loaded = diag_load_torch(phi_xh, diag_load_x)
 
-    eye = torch.eye(c, dtype=phi_v.dtype, device=phi_v.device).unsqueeze(0)
+    eye = torch.eye(c, dtype=phi_vb.dtype, device=phi_vb.device).unsqueeze(0)
     try:
         A = torch.linalg.solve(phi_v_loaded, phi_x_loaded)
     except RuntimeError:
-        A = torch.linalg.solve(phi_v_loaded + 1e-3 * eye, phi_x_loaded)
+        A = torch.linalg.solve(phi_v_loaded + float(solve_fallback_jitter) * eye, phi_x_loaded)
 
     tau = A.diagonal(dim1=-2, dim2=-1).sum(dim=-1)
     den_real = tau.real
@@ -163,6 +232,9 @@ def trace_norm_weights_torch(
         w_fb = torch.zeros_like(w)
         w_fb[:, ref_idx] = 1.0 + 0.0j
         w = torch.where(invalid.unsqueeze(-1), w_fb, w)
+
+    if squeeze:
+        return w.squeeze(0), den_real.squeeze(0), invalid.squeeze(0)
     return w, den_real, invalid
 
 

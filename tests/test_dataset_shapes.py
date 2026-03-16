@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -40,6 +42,21 @@ def test_paper_like_dataset_legacy_targets_optional() -> None:
     assert "y2" in sample
     assert "y3" in sample
 
+
+
+def test_paper_like_dataset_warns_on_legacy_frontend_args() -> None:
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        _ = PaperLikeDataset(
+            sample_rate=8000,
+            segment_seconds=0.25,
+            seed=0,
+            num_samples=1,
+            use_mcwf=False,
+            causal_frames=8,
+            include_legacy_targets=False,
+        )
+    assert any("no longer control y0 generation" in str(w.message) for w in rec)
 
 def test_rir_close_mic_direct_path_delay_4mic() -> None:
     rng = np.random.default_rng(4)

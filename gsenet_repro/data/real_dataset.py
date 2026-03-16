@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -110,7 +111,15 @@ def _slice_aligned(
 
 
 class RealMultichannelDataset(Dataset):
-    """Dataset for real multi-mic recordings as raw waveform training inputs."""
+    """Dataset for real multi-mic recordings as raw waveform training inputs.
+
+    Notes:
+        - This dataset no longer generates ``y0``.
+        - Training/evaluation code computes frontend ``y0`` via
+          :func:`gsenet_repro.pipeline.frontend.make_y0_from_frontend`.
+        - ``include_legacy_targets=True`` only restores auxiliary targets
+          (for example ``y2``), not dataset-side ``y0`` generation.
+    """
 
     def __init__(
         self,
@@ -142,12 +151,31 @@ class RealMultichannelDataset(Dataset):
         self.causal_frames = int(causal_frames)
         self.seed = int(seed)
         self.mic_positions = mic_positions
+        self._warn_legacy_frontend_args()
 
         manifest = Path(manifest_path) if manifest_path else None
         root = Path(root_dir) if root_dir else None
         self.entries = _resolve_manifest_entries(manifest, root, num_mics=self.num_mics)
         if not self.entries:
             raise ValueError("No entries found for dataset")
+
+    def _warn_legacy_frontend_args(self) -> None:
+        legacy_frontend_args = []
+        if self.use_mcwf is not True:
+            legacy_frontend_args.append(f"use_mcwf={self.use_mcwf}")
+        if self.causal_frames != 4:
+            legacy_frontend_args.append(f"causal_frames={self.causal_frames}")
+        if not legacy_frontend_args:
+            return
+        warnings.warn(
+            "RealMultichannelDataset legacy frontend args "
+            f"({', '.join(legacy_frontend_args)}) no longer control y0 generation. "
+            "Datasets now provide raw waveforms only; y0 is computed in train/eval via "
+            "make_y0_from_frontend(...). include_legacy_targets only restores auxiliary "
+            "targets such as y2/y3 and does not re-enable dataset-side y0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     def __len__(self) -> int:
         return len(self.entries)

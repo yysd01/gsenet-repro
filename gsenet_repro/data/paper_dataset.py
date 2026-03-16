@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from typing import Dict, Iterator, Optional
 
 import numpy as np
@@ -22,7 +23,15 @@ else:  # pragma: no cover
 
 
 class PaperLikeDataset(IterableDataset):
-    """On-the-fly paper-like dataset that provides raw mixture/target waveforms."""
+    """On-the-fly paper-like dataset that provides raw mixture/target waveforms.
+
+    Notes:
+        - This dataset no longer generates ``y0``.
+        - Training/evaluation code computes frontend ``y0`` via
+          :func:`gsenet_repro.pipeline.frontend.make_y0_from_frontend`.
+        - ``include_legacy_targets=True`` only restores auxiliary targets
+          (``y2``/``y3``) for legacy models; it does not re-enable dataset-side ``y0``.
+    """
 
     def __init__(
         self,
@@ -63,6 +72,25 @@ class PaperLikeDataset(IterableDataset):
         self.noise_types = noise_types
         self.global_gain = float(global_gain)
         self.mic_positions = mic_positions
+        self._warn_legacy_frontend_args()
+
+    def _warn_legacy_frontend_args(self) -> None:
+        legacy_frontend_args = []
+        if self.use_mcwf is not True:
+            legacy_frontend_args.append(f"use_mcwf={self.use_mcwf}")
+        if self.causal_frames != 4:
+            legacy_frontend_args.append(f"causal_frames={self.causal_frames}")
+        if not legacy_frontend_args:
+            return
+        warnings.warn(
+            "PaperLikeDataset legacy frontend args "
+            f"({', '.join(legacy_frontend_args)}) no longer control y0 generation. "
+            "Datasets now provide raw waveforms only; y0 is computed in train/eval via "
+            "make_y0_from_frontend(...). include_legacy_targets only restores auxiliary "
+            "targets such as y2/y3 and does not re-enable dataset-side y0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     def _make_rng(self, worker_id: int) -> np.random.Generator:
         return np.random.default_rng(self.seed + worker_id)

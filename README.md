@@ -200,7 +200,7 @@ python scripts/report_paper_like_full.py --run_dir <...>
 
 `mcwf_frontend`（保留历史命名）默认已切换为 4 麦频域 MVDR 前端：在 STFT 域估计干扰协方差 `R_nn`、RTF 导向向量 `d(f)`，输出单通道 beamformed `y0`。Gate 使用 VAD + GCC-PHAT 的“前方±60°一致性”判定。
 
-可选数据配置项：`data.mic_positions`（单位米，形状为 `[[x,y,z], ...]`），用于 gate 的 GCC 几何约束；未提供时回退到内置 4 麦示例几何。`mcwf_make_y0` 会使用 `data.sample_rate` 进行时延上限换算，避免固定 16k 带来的门控误判。
+可选数据配置项：`data.mic_positions`（单位米，形状为 `[[x,y,z], ...]`），用于 gate 的 GCC 几何约束；未提供时回退到内置 4 麦示例几何。统一入口 `make_y0_from_frontend(...)` 会使用 `data.sample_rate` 进行时延上限换算，避免固定 16k 带来的门控误判（`mcwf_make_y0` 仅保留兼容层）。
 
 快速查看论文规模模型的参数量与 STFT 配置：
 
@@ -385,3 +385,40 @@ PYTHONPATH="$(pwd)" python scripts/stream_tncov.py \
 - `trace_norm` 权重公式采用 `w = solve(Phi_v, Phi_x)[..., ref_ch] / trace.real`，不显式依赖 steering vector。
 - gate 与 beamformer 解耦：`frontend.gate_mode` 支持 `sector` / `vad` / `coherence`（仅用于统计量 gate）。
 - 旧接口 `mcwf_make_y0` 保留兼容但已 deprecated，并会提示迁移到 `frontend.type`。
+
+
+## Quick debug run with unified trace_norm frontend
+
+This repository now uses a unified frontend pipeline:
+
+- Datasets provide raw waveforms (`x_mics`, `y1`, `yt`) and **do not generate `y0`**.
+- Training/evaluation generates `y0` via `make_y0_from_frontend(...)`.
+- `gsenet_paper_scale` consumes `y0 + y1`.
+- `minimal` consumes `y0 + y1 + y2` (`y2` is legacy/auxiliary only).
+
+Recommended debug commands:
+
+```bash
+# 1) Run tests
+python -m pytest -q
+
+# 2) Minimal training smoke (very short; unified trace_norm frontend)
+python scripts/train_paper_like_full.py \
+  --config configs/paper_like_4mic.toml \
+  --num_steps 2 --eval_every 1 --log_every 1 --ckpt_every 2 \
+  --batch_size 2 --num_workers 0 \
+  --frontend_type trace_norm \
+  --run_name debug_trace_norm_smoke
+
+# 3) Minimal evaluation run from that debug checkpoint
+python scripts/test.py \
+  --run_dir artifacts/runs/debug_trace_norm_smoke \
+  --num_batches 1 --batch_size 2 \
+  --config configs/paper_like_4mic.toml
+
+# 4) Minimal streaming trace_norm run (requires torch + a 4ch wav)
+python scripts/run.py stream-tncov -- \
+  --wav path/to/4ch_input.wav \
+  --out_wav artifacts/debug_run/stream_tncov.wav \
+  --config configs/paper_like_4mic.toml
+```

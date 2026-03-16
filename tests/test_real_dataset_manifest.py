@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import warnings
 import sys
 from pathlib import Path
 
@@ -58,6 +59,23 @@ def test_real_dataset_manifest_dataloader() -> None:
 
     assert torch.isfinite(batch["x_mics"]).all()
 
+
+
+def test_real_dataset_warns_on_legacy_frontend_args() -> None:
+    manifest_path = _make_dummy_manifest()
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        _ = RealMultichannelDataset(
+            manifest_path=str(manifest_path),
+            sample_rate=16000,
+            segment_seconds=0.25,
+            num_mics=4,
+            ref_mic_index=0,
+            use_mcwf=False,
+            causal_frames=8,
+            include_legacy_targets=False,
+        )
+    assert any("no longer control y0 generation" in str(w.message) for w in rec)
 
 def test_real_dataset_legacy_targets_optional() -> None:
     manifest_path = _make_dummy_manifest()
