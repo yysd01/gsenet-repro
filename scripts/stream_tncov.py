@@ -35,7 +35,8 @@ def main() -> None:
     parser.add_argument("--wav4ch", type=str, required=True)
     parser.add_argument("--out", type=str, default="y0_tncov.wav")
     parser.add_argument("--chunk-size", type=int, default=1280)
-    parser.add_argument("--mode", type=str, default="tncov")
+    parser.add_argument("--mode", type=str, default="trace_norm")
+    parser.add_argument("--gate-mode", type=str, default="vad", choices=("vad", "sector", "coherence"))
     parser.add_argument("--rtf-lib", type=str, default=None)
     parser.add_argument("--doa", type=int, default=None)
     parser.add_argument("--alpha-y", type=float, default=0.92)
@@ -50,12 +51,12 @@ def main() -> None:
     parser.add_argument("--coh-t1", type=float, default=0.35)
     parser.add_argument("--vad-db-thresh", type=float, default=-35.0)
     parser.add_argument("--vad-smooth", type=float, default=6.0)
-    parser.add_argument("--ref-ch", type=int, default=0)
+    parser.add_argument("--ref-ch", type=int, default=1)
     parser.add_argument("--log-interval-frames", type=int, default=100)
     args = parser.parse_args()
 
-    if args.mode != "tncov":
-        raise SystemExit("--mode only supports 'tncov'")
+    if args.mode not in {"trace_norm", "tncov"}:
+        raise SystemExit("--mode only supports 'trace_norm' (alias: tncov)")
 
     wav, sr = sf.read(args.wav4ch, always_2d=True, dtype="float32")
     if wav.shape[1] != 4:
@@ -80,6 +81,7 @@ def main() -> None:
         vad_db_thresh=args.vad_db_thresh,
         vad_smooth=args.vad_smooth,
         log_interval_frames=args.log_interval_frames,
+        gate_mode=args.gate_mode,
     )
 
     if args.rtf_lib:

@@ -376,3 +376,12 @@ PYTHONPATH="$(pwd)" python scripts/stream_tncov.py \
   --coh-t0 0.15 --coh-t1 0.35 \
   --psd-project false
 ```
+
+
+## Unified configurable frontend
+
+- 网络主体 `GSENetPaperScale` 未改；改动集中在 `y0` 生成逻辑。
+- 新增统一入口 `make_y0_from_frontend(...)`，由 `frontend.type` 选择 `none` / `mvdr` / `trace_norm`。
+- `trace_norm` 权重公式采用 `w = solve(Phi_v, Phi_x)[..., ref_ch] / trace.real`，不显式依赖 steering vector。
+- gate 与 beamformer 解耦：`frontend.gate_mode` 支持 `sector` / `vad` / `coherence`（仅用于统计量 gate）。
+- 旧接口 `mcwf_make_y0` 保留兼容但已 deprecated，并会提示迁移到 `frontend.type`。

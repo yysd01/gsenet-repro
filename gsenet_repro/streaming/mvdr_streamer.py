@@ -22,13 +22,13 @@ class MVDRStreamer:
     def __init__(
         self,
         sample_rate: int = 16000,
-        n_fft: int = 256,
-        win_length: int = 256,
-        hop_length: int = 128,
+        n_fft: int = 320,
+        win_length: int = 320,
+        hop_length: int = 160,
         window: str = "hann",
         center: bool = False,
         num_mics: int = 4,
-        ref_ch: int = 0,
+        ref_ch: int = 1,
         diag_load: float = 1e-2,
         rnn_alpha: float = 0.98,
         update_interval_frames: int = 4,
@@ -78,6 +78,21 @@ class MVDRStreamer:
         self.last_target_like: Optional[torch.Tensor] = None
         self.last_coh: Optional[torch.Tensor] = None
         self.reset()
+
+    @classmethod
+    def from_config(cls, config: dict) -> "MVDRStreamer":
+        data = config.get("data", {})
+        stft = config.get("stft_model", {})
+        frontend = config.get("frontend", {})
+        return cls(
+            sample_rate=int(data.get("sample_rate", 16000)),
+            n_fft=int(stft.get("n_fft", 320)),
+            win_length=int(stft.get("win_length", 320)),
+            hop_length=int(stft.get("hop_length", 160)),
+            num_mics=int(data.get("num_mics", 4)),
+            ref_ch=int(frontend.get("ref_ch", data.get("ref_mic_index", 1))),
+            diag_load=float(frontend.get("diag_load_v", 1e-2)),
+        )
 
     def reset(self) -> None:
         self._input_buffer: Optional[torch.Tensor] = None
